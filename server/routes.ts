@@ -28,7 +28,7 @@
  * AUTENTICACIÓN Y AUTORIZACIÓN:
  * - Sistema: Email/Password con sesiones persistentes (express-session)
  * - Storage: Sesiones guardadas en PostgreSQL tabla 'sessions'
- * - Password: Hash con bcrypt (10 salt rounds)
+ * - Password: Hash con sha256 (crypto) para seguridad
  * - Middleware: isAuthenticated() valida sesión en rutas protegidas
  * 
  * ROLES DEL SISTEMA:
@@ -53,7 +53,7 @@
  * 
  * SEGURIDAD IMPLEMENTADA:
  * ✅ Autenticación requerida: Middleware isAuthenticated() en rutas protegidas
- * ✅ Password hashing: bcrypt con 10 salt rounds
+ * ✅ Password hashing: sha256 para almacenamiento seguro
  * ✅ Validación de entrada: Esquemas Zod en todos los endpoints
  * ✅ Multi-tenancy: Aislamiento de datos por companyId
  * ✅ SQL Injection: Prepared statements con pg driver
@@ -121,7 +121,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupSession, isAuthenticated, passwordUtils } from "./auth";
+import { setupAuth, isAuthenticated, passwordUtils, jwtUtils, setJwtCookie, clearJwtCookie } from "./auth";
 import {
   insertAssetSchema,
   insertContractSchema,
@@ -143,7 +143,7 @@ import {
  */
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar middleware de sesiones
-  setupSession(app);
+  setupAuth(app);
 
   // =============================================================================
   // RUTAS PÚBLICAS (sin autenticación)
@@ -159,7 +159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * 
    * FLUJO DE REGISTRO:
    * 1. Validar datos de entrada con Zod (companyRegistrationSchema)
-   * 2. Hashear password con bcrypt (10 salt rounds)
+   * 2. Hashear password con sha256 (nunca almacenar en texto plano)
    * 3. Iniciar transacción de base de datos
    * 4. Crear empresa con plan seleccionado (PyME o Professional)
    * 5. Crear usuario administrador (role: manager_owner)
@@ -209,7 +209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // PASO 1: Validar datos de entrada con esquema Zod
       const registrationData = companyRegistrationSchema.parse(req.body);
       
-      // PASO 2: Hash del password con bcrypt (10 salt rounds)
+      // PASO 2: Hash del password con sha256
       // NUNCA guardar passwords en texto plano
       const passwordHash = await passwordUtils.hash(registrationData.password);
       
@@ -221,11 +221,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // PASO 8: Login automático - crear sesión para el usuario recién registrado
-      req.session.userId = result.user.id;
-      req.session.email = result.user.email;
-      req.session.firstName = result.user.firstName;
-      req.session.lastName = result.user.lastName;
-      req.session.role = result.user.role;
+      const token = jwtUtils.generateToken({
+        id: result.user.id,
+        email: result.user.email,
+        firstName: result.user.firstName,
+        lastName: result.user.lastName,
+        role: result.user.role,
+      });
+      //establecer JWT en cookie HTTP-only
+      setJwtCookie(res, token);
       
       // Respuesta exitosa con datos de empresa y usuario
       res.json({
@@ -267,7 +271,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * FLUJO DE LOGIN:
    * 1. Validar formato de email y password con Zod
    * 2. Buscar usuario por email en la base de datos
-   * 3. Verificar password con bcrypt.compare()
+   * 3. Verificar password con passwordUtils.verify (sha256)
    * 4. Crear sesión en PostgreSQL (express-session)
    * 5. Enviar cookie de sesión al cliente (httpOnly, secure en prod)
    * 
@@ -295,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * - 500: Error interno del servidor
    * 
    * SEGURIDAD:
-   * ✅ Password verificado con bcrypt (timing-attack resistant)
+   * ✅ Password verificado con sha256
    * ✅ Mensaje de error genérico (no revela si el email existe)
    * ✅ Sesión almacenada en PostgreSQL (no en memoria)
    * ✅ Cookie httpOnly (no accesible desde JavaScript)
@@ -316,20 +320,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Email o contraseña incorrectos" });
       }
       
-      // PASO 3: Verificar password con bcrypt
-      // bcrypt.compare() es timing-attack resistant
+      // PASO 3: Verificar password con sha256
       const isValidPassword = await passwordUtils.verify(password, user.passwordHash);
       if (!isValidPassword) {
         // Mismo mensaje de error por seguridad
         return res.status(401).json({ message: "Email o contraseña incorrectos" });
       }
       
-      // PASO 4-5: Crear sesión (express-session la guarda en PostgreSQL automáticamente)
-      req.session.userId = user.id;
-      req.session.email = user.email;
-      req.session.firstName = user.firstName;
-      req.session.lastName = user.lastName;
-      req.session.role = user.role;
+      // PASO 4: Genera JWT
+      const token = jwtUtils.generateToken({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+      });
+      // PASO 5: Establecer JWT en cookie HTTP-only
+      setJwtCookie(res, token);
       
       // Respuesta exitosa (SIN password hash)
       res.json({
@@ -353,12 +360,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * Cierra la sesión del usuario.
    */
   app.post('/api/logout', (req: any, res) => {
-    req.session.destroy((err: any) => {
-      if (err) {
-        return res.status(500).json({ message: "Error al cerrar sesión" });
-      }
-      res.json({ message: "Sesión cerrada exitosamente" });
-    });
+    //limpiar la cookie JWT
+    clearJwtCookie(res);
+    res.json({ message: "Sesión cerrada exitosamente" });
   });
 
   // =============================================================================
@@ -379,7 +383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "Usuario no encontrado" });

@@ -1,81 +1,83 @@
 /**
- * MÓDULO DE AUTENTICACIÓN
+ * MÓDULO DE AUTENTICACIÓN (MODIFICADO CON JWT)
  *
- * Sistema de autenticación basado en email/password con sesiones
- * NO depende de servicios externos como Replit OIDC
+ * Sistema de autenticación basado en JWT con cookies HTTP-only
  *
  * Características:
- * - Hash de contraseñas con bcrypt
- * - Sesiones persistentes con express-session
+ * - JWT con tiempo de expiración de 7 días
+ * - Hashing de contraseñas con SHA-256
  * - Middleware para proteger rutas
- * - Endpoints de login/logout/verificación
+ * - Endpoints de login/logout/verificación de sesión
  */
-import connectPgSimple from "connect-pg-simple";
+import crypto from "crypto";
+import jwt from "jsonwebtoken";
 import {
   type Express,
   type Request,
   type Response,
   type NextFunction,
 } from "express";
-import session from "express-session";
-import bcrypt from "bcrypt";
-const pgSessionStore = connectPgSimple(session);
-// Extender tipos de Express para incluir información de sesión
-declare module "express-session" {
-  interface SessionData {
-    userId: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: string;
+import cookieParser from "cookie-parser";
+
+/**
+ * Extender tipos de Express para incluir información de usuario en el request
+ */
+declare global{
+  namespace Express {
+    interface Request {
+      user?: {
+        userId: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        role: string;
+      };
+    }
   }
 }
 
 /**
- * Configurar middleware de sesiones
+ * Configurar middleware de cookies y JWT
  *
  * VARIABLES DE ENTORNO REQUERIDAS:
- * - SESSION_SECRET: Secret para firmar cookies de sesión (requerido en producción)
+ * - JWT_SECRET: Secret para firmar JWTs (requerido en producción)
  * - NODE_ENV: 'development' | 'production'
- *
- * En producción, considere usar connect-pg-simple para almacenar sesiones en PostgreSQL
  */
-export function setupSession(app: Express) {
-  const sessionSecret =
-    process.env.SESSION_SECRET || "dev-secret-change-in-production";
+export function setupAuth(app: Express) {
+  const jwtSecret = process.env.JWT_SECRET || "dev-secret-change-in-production";
 
   if (
     process.env.NODE_ENV === "production" &&
-    sessionSecret === "dev-secret-change-in-production"
+    jwtSecret === "dev-secret-change-in-production"
   ) {
     console.warn(
-      "⚠️  WARNING: Usando SESSION_SECRET por defecto en producción. Configure SESSION_SECRET en variables de entorno."
+      "⚠️  WARNING: Usando JWT_SECRET por defecto en producción. Configure JWT_SECRET en variables de entorno."
     );
   }
+  
+//Middleware para parsear cookies
+app.use(cookieParser());
 
-  app.use(
-    session({
-      secret: sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // HTTPS en producción
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
-        sameSite: "lax",
-      },
-      // En producción, usar almacenamiento persistente:
-      store: new pgSessionStore({
-        conString: process.env.DATABASE_URL,
-        tableName: "sessions",
-      }),
-    })
-  );
-}
+//Middlwware para verificar JWT en cada solicitud (excepto rutas públicas))
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const token = req.cookies.jwt;
+  if (token) {
+    try{
+      const decoded = jwt.verify(token, jwtSecret) as any;
+      req.user =decoded;
+    }catch(error){
+      //Token inválido o expirado, continuar sin usarlo
+      //las ruutas protegidas verifican si req.user existe
+    }
+  }
+  next();
+});
+} 
+
 
 /**
  * Middleware de autenticación
- * Protege rutas verificando que el usuario esté autenticado
+ * Protege rutas verificando que el usuario esté autenticado via JWT
  *
  * USO:
  * app.get('/api/protected', isAuthenticated, (req, res) => { ... });
@@ -85,7 +87,7 @@ export function isAuthenticated(
   res: Response,
   next: NextFunction
 ) {
-  if (req.session && req.session.userId) {
+  if (req.user && req.user.userId) {
     return next();
   }
 
@@ -96,26 +98,96 @@ export function isAuthenticated(
 }
 
 /**
- * Utilidades de hash para contraseñas
+ * Utilidades de hash para contraseñas con SHA256
  */
 export const passwordUtils = {
   /**
-   * Crear hash de contraseña usando bcrypt
+   * Crear hash de contraseña usando SHA256
    * @param password - Contraseña en texto plano
-   * @returns Hash bcrypt de la contraseña
+   * @returns Hash SHA256 de la contraseña (hexadecimal)
    */
-  async hash(password: string): Promise<string> {
-    const saltRounds = 10;
-    return bcrypt.hash(password, saltRounds);
+  hash(password: string): string{
+    return crypto.createHash("sha256").update(password).digest("hex");
   },
 
-  /**
+   /**
    * Verificar contraseña contra hash
    * @param password - Contraseña en texto plano
    * @param hash - Hash almacenado en la base de datos
    * @returns true si la contraseña coincide
    */
-  async verify(password: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(password, hash);
+  verify(password: string, hash: string): boolean {
+    const passwordHash = crypto
+      .createHash("sha256")
+      .update(password)
+      .digest("hex");
+    return passwordHash === hash;
   },
 };
+/**
+ * Utilidades para generar y verificar JWTs
+ */
+export const jwtUtils = {
+  /**
+   * Generar JWT para un usuario
+   * @param user - Información del usuario
+   * @returns JWT firmado con expiración de 7 días
+   */
+  generateToken(user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+  }): string {
+    const jwtSecret = process.env.JWT_SECRET || "dev-secret-change-in-production";
+    const playload ={
+      userId: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+    };
+    return jwt.sign(playload, jwtSecret, { expiresIn: "7d" });
+  },
+  /**
+   * Verificar y decodificar JWT
+   * @param token - JWT a verificar
+   * @returns Payload decodificado si es válido, null si es inválido
+   */
+  verifyToken(token: string): any | null {
+  const jwtSecret = process.env.JWT_SECRET || "dev-secret-change-in-production";
+    try {
+      return jwt.verify(token, jwtSecret);
+    } catch (error) {
+      return null;
+    }
+  },
+};
+/**
+ * Función para establecer la cookie JWT en la respuesta
+ * @param res - Objeto de respuesta Express
+ * @param token - JWT a almacenar
+ */
+export function setJwtCookie(res: Response, token: string) {
+  res.cookie("jwt", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 *1000, // 7 días
+    sameSite: "lax",
+    path: "/",
+  });
+}
+
+/**
+ * Función para limpiar la cookie JWT en la respuesta
+ * @param res - Objeto de respuesta Express
+ */
+export function clearJwtCookie(res: Response) {
+  res.clearCookie("jwt", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });  
+}
