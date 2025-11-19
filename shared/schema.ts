@@ -280,8 +280,12 @@ export const insertMaintenanceRecordSchema = z.object({
 export const companyRegistrationSchema = z.object({
   name: z.string().min(1, "Nombre es requerido"),
   plan: z.enum(["pyme", "professional"]),
-  ruc: z.string().optional(),
-  cedula: z.string().optional(), 
+  ruc: z.string().optional().refine((val) => !val || (/^\d{13}$/.test(val)), {
+    message: "El RUC debe tener 13 dígitos numéricos",
+  }),
+  cedula: z.string().optional().refine((val) => !val || (/^\d{10}$/.test(val)), {
+    message: "La Cédula debe tener 10 dígitos numéricos",
+  }),
   address: z.string().min(1, "Dirección es requerida"),
   phone: z.string().min(1, "Celular es requerido"),
   email: z.string().email("Email inválido"),
@@ -292,15 +296,6 @@ export const companyRegistrationSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Las contraseñas no coinciden",
   path: ["confirmPassword"]
-}).refine((data) => {
-  if (data.plan === "pyme") {
-    return data.ruc && data.ruc.length > 0;
-  } else {
-    return data.cedula && data.cedula.length > 0;
-  }
-}, {
-  message: "RUC es requerido para empresas PyME, Cédula es requerida para profesionales",
-  path: ["ruc"]
 });
 
 // Login schema

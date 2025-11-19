@@ -246,6 +246,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error registering company:", error);
       
+      if(res.headersSent) {
+        return;
+      }
       // Manejar errores específicos
       if (error.message === "El email ya está registrado") {
         res.status(400).json({ message: error.message });
@@ -415,7 +418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.get('/api/companies', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const userCompanies = await storage.getUserCompanies(userId);
       res.json(userCompanies);
     } catch (error) {
@@ -440,7 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.post('/api/companies', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertCompanySchema.parse(req.body);
       
       const company = await storage.createCompany(validatedData);
@@ -553,7 +556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/assets', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertAssetSchema.parse(req.body);
       
       const asset = await storage.createAsset(validatedData);
@@ -577,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/assets/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertAssetSchema.partial().parse(req.body);
       
       const asset = await storage.updateAsset(id, validatedData);
@@ -601,7 +604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) => {
     try {
       const { id, companyId } = req.params;
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       
       const asset = await storage.getAssetById(id, companyId);
       if (!asset) {
@@ -640,7 +643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/contracts', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertContractSchema.parse(req.body);
       
       const contract = await storage.createContract(validatedData);
@@ -675,7 +678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/licenses', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertLicenseSchema.parse(req.body);
       
       const license = await storage.createLicense(validatedData);
@@ -721,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/maintenance', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.session.userId;
+      const userId = req.user.userId;
       const validatedData = insertMaintenanceRecordSchema.parse(req.body);
       
       const record = await storage.createMaintenanceRecord(validatedData);
@@ -745,7 +748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin routes (Super Admin only)
   app.get('/api/admin/companies', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
@@ -760,7 +763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/admin/companies/:companyId/plan', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
@@ -782,7 +785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/admin/companies/:companyId/status', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
@@ -801,7 +804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Super Admin - Support Mode Routes
   app.post('/api/admin/support-access/:companyId', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
@@ -814,7 +817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Set support mode session flag
-      req.session.supportMode = {
+      req.user.supportMode = {
         companyId: companyId,
         adminId: user.id,
         startTime: new Date().toISOString()
@@ -843,13 +846,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/admin/exit-support', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
       
-      if (req.session.supportMode) {
-        const supportInfo = req.session.supportMode;
+      if (req.user.supportMode) {
+        const supportInfo = req.user.supportMode;
         
         // Log exit from support mode
         await storage.logActivity({
@@ -861,7 +864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           entityName: "Exited support mode",
         });
         
-        delete req.session.supportMode;
+        delete req.user.supportMode;
       }
       
       res.json({ message: "Exited support mode", supportMode: false });
@@ -873,12 +876,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/admin/support-status', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.session.userId);
+      const user = await storage.getUser(req.user.userId);
       if (user?.role !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin required." });
       }
       
-      const supportMode = req.session.supportMode || null;
+      const supportMode = req.user.supportMode || null;
       let currentCompany = null;
       
       if (supportMode) {

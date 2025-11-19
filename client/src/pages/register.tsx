@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Server, ArrowLeft, Building2, User } from "lucide-react";
 import { companyRegistrationSchema, type CompanyRegistration } from "@shared/schema";
+import { c } from "node_modules/vite/dist/node/types.d-aGj9QkWt";
 
 export default function Register() {
   const { toast } = useToast();
@@ -30,6 +31,7 @@ export default function Register() {
     defaultValues: {
       plan: "pyme",
     },
+    shouldFocusError: true,
   });
 
   const registerMutation = useMutation({
@@ -46,7 +48,7 @@ export default function Register() {
         window.location.href = "/";
       }, 1000);
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
       toast({
         title: "Error al registrar",
         description: error.message || "Hubo un problema al crear tu cuenta",
@@ -56,7 +58,35 @@ export default function Register() {
   });
 
   const onSubmit = (data: CompanyRegistration) => {
-    registerMutation.mutate(data);
+ // Validar que RUC o Cédula estén presentes antes de enviar
+  if (data.plan === "pyme" && !data.ruc) {
+    toast({
+      title: "Error",
+      description: "El RUC es obligatorio para empresas PyME.",
+      variant: "destructive",
+    });
+    return; // No continuar con el envío del formulario
+  }
+
+  if (data.plan === "professional" && !data.cedula) {
+    toast({
+      title: "Error",
+      description: "La Cédula es obligatoria para profesionales.",
+      variant: "destructive",
+    });
+    return; // No continuar con el envío del formulario
+  }
+
+  registerMutation.mutate(data);  // Enviar los datos al backend
+};
+
+  const onValidationFailure = (errors: any) => {
+    // Esto se ejecuta SOLO si el formulario es inválido
+    toast({
+      title: "Formulario inválido",
+      description: "Por favor revisa los campos marcados en rojo antes de continuar.",
+      variant: "destructive",
+    });
   };
 
   const handlePlanChange = (plan: "pyme" | "professional") => {
@@ -65,6 +95,15 @@ export default function Register() {
     // Reset conditional fields
     form.setValue("ruc", "");
     form.setValue("cedula", "");
+  };
+
+  const handleRucChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 13);
+    form.setValue("ruc", value, { shouldValidate: true });
+  };
+  const handleCedulaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+    form.setValue("cedula", value, { shouldValidate: true });
   };
 
   return (
@@ -112,7 +151,7 @@ export default function Register() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <form onSubmit={form.handleSubmit(onSubmit, onValidationFailure)} className="space-y-6">
                 {/* Plan Selection */}
                 <div className="space-y-2">
                   <Label htmlFor="plan">Tipo de cuenta</Label>
@@ -161,6 +200,7 @@ export default function Register() {
                       <Input
                         {...form.register("ruc")}
                         placeholder="Ej: 1234567890001"
+                        onChange={handleRucChange}
                         data-testid="input-ruc"
                       />
                       {form.formState.errors.ruc && (
@@ -173,6 +213,7 @@ export default function Register() {
                       <Input
                         {...form.register("cedula")}
                         placeholder="Ej: 1234567890"
+                        onChange={handleCedulaChange}
                         data-testid="input-cedula"
                       />
                       {form.formState.errors.cedula && (
