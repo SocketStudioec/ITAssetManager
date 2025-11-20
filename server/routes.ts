@@ -817,11 +817,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Set support mode session flag
-      req.user.supportMode = {
+      const supportModeData = {
         companyId: companyId,
         adminId: user.id,
         startTime: new Date().toISOString()
       };
+      
+      // 1. Generar un NUEVO token JWT con el estado actualizado
+      const newPayload = {
+        ...req.user, // Copia el payload actual
+        supportMode: supportModeData, // Agrega el nuevo estado
+      };
+      
+      const newToken = jwtUtils.generateToken(newPayload);
+      
+      // 2. Establecer el nuevo JWT en la cookie HTTP-only
+      setJwtCookie(res, newToken);
       
       // Log this access for auditing
       await storage.logActivity({
@@ -836,7 +847,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         message: "Support access granted", 
         company: company,
-        supportMode: true 
+        supportMode: true,
+        user: newPayload 
       });
     } catch (error) {
       console.error("Error granting support access:", error);
@@ -863,11 +875,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           entityId: supportInfo.companyId,
           entityName: "Exited support mode",
         });
-        
-        delete req.user.supportMode;
-      }
+
+        // 1. Eliminar el estado de support mode
+        const newPayload = { 
+          ...req.user 
+        };
+       delete newPayload.supportMode;
+      // 2. Generar un NUEVO token JWT sin el estado de support mode
+      const newToken = jwtUtils.generateToken(newPayload);
       
-      res.json({ message: "Exited support mode", supportMode: false });
+      // 3. Establecer el nuevo JWT en la cookie HTTP-only
+      setJwtCookie(res, newToken);
+
+      //4. Actualizar la sesión del usuario
+      req.user = newPayload;
+    }
+      
+      res.json({ 
+        message: "Exited support mode", 
+        supportMode: false,
+        user: req.user //devuelve el estado actualizado del usuario
+       });
     } catch (error) {
       console.error("Error exiting support mode:", error);
       res.status(500).json({ message: "Failed to exit support mode" });

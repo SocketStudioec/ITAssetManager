@@ -133,22 +133,20 @@ export const jwtUtils = {
    * @param user - Información del usuario
    * @returns JWT firmado con expiración de 7 días
    */
-  generateToken(user: {
-    id: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-  }): string {
+  generateToken(payload: any): string {
     const jwtSecret = process.env.JWT_SECRET || "dev-secret-change-in-production";
-    const playload ={
-      userId: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role,
+    
+    //Mapear el payload para incluir solo campos necesarios
+    const finalPayload ={
+      userId: payload.userId || payload.id,
+      email: payload.email,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      role: payload.role,
+      //Incluir otros campos si es necesario(SupportMode)
+      ...(payload.supportMode && { supportMode: payload.supportMode }),
     };
-    return jwt.sign(playload, jwtSecret, { expiresIn: "7d" });
+    return jwt.sign(finalPayload, jwtSecret, { expiresIn: "7d" });
   },
   /**
    * Verificar y decodificar JWT
