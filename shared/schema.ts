@@ -71,6 +71,7 @@ export interface Asset {
   status: AssetStatus;
   location: string | null;
   assignedTo: string | null;
+  assignedTechnicianId: string | null;
   notes: string | null;
   applicationType: ApplicationType | null;
   url: string | null;
@@ -206,6 +207,7 @@ export const insertAssetSchema = z.object({
   status: z.enum(["active", "inactive", "maintenance", "deprecated", "disposed"]).optional(),
   location: z.string().optional().nullable(),
   assignedTo: z.string().optional().nullable(),
+  assignedTechnicianId: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   applicationType: z.enum(["saas", "custom_development"]).optional().nullable(),
   url: z.string().optional().nullable(),

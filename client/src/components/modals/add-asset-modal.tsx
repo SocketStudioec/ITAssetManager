@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { z } from "zod";
+import { useAuthData } from "@/hooks/useAuthData";
 
 const formSchema = insertAssetSchema.extend({
   companyId: z.string().min(1, "Company ID is required"),
@@ -39,6 +40,9 @@ interface AddAssetModalProps {
 export default function AddAssetModal({ open, onOpenChange, companyId }: AddAssetModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const { userId: loggedInUserId, isLoading: isAuthLoading } = useAuthData(); 
+
 
   // Get technicians for assignment
   const { data: technicians = [] } = useQuery({
@@ -56,20 +60,20 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       serialNumber: "",
       model: "",
       manufacturer: "",
-      monthlyCost: "0",
-      annualCost: "0",
+      monthlyCost: 0,
+      annualCost: 0,
       status: "active",
       location: "",
       assignedTo: "",
-      assignedTechnicianId: "",
+      assignedTechnicianId: loggedInUserId||"",
       notes: "",
       applicationType: "saas",
       url: "",
       version: "",
-      domainCost: "0",
-      sslCost: "0",
-      hostingCost: "0",
-      serverCost: "0",
+      domainCost: 0,
+      sslCost: 0,
+      hostingCost: 0,
+      serverCost: 0,
       domainExpiry: undefined,
       sslExpiry: undefined,
       hostingExpiry: undefined,
@@ -115,7 +119,13 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   });
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    createAssetMutation.mutate({ ...data, companyId });
+    //  Asegurar que el assignedTechnicianId sea el del usuario logueado
+    const dataWithTechnician = {
+      ...data,
+      companyId,
+      assignedTechnicianId: loggedInUserId,
+    };
+    createAssetMutation.mutate(dataWithTechnician);
   };
 
   return (
@@ -187,34 +197,27 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
               )}
             />
 
-            <FormField
+           <FormField
               control={form.control}
               name="assignedTechnicianId"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Técnico Asignado</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-assigned-technician">
-                        <SelectValue placeholder="Seleccionar técnico (opcional)..." />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="">Sin asignar</SelectItem>
-                      {technicians.map((tech: any) => (
-                        <SelectItem key={tech.id} value={tech.id}>
-                          {tech.firstName || tech.lastName 
-                            ? `${tech.firstName || ''} ${tech.lastName || ''}`.trim()
-                            : tech.email
-                          }
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <FormItem className="hidden">
+                  <FormLabel>Técnico Asignado (Automático)</FormLabel>
+                  <FormControl>
+                    <Input {...field} type="hidden" value={loggedInUserId || ""} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            
+            {/* Mostrar el nombre del técnico asignado (usuario logueado) solo para visualización */}
+            <div className="space-y-2">
+              <FormLabel>Técnico Asignado</FormLabel>
+              <div className="p-2 border rounded-md bg-gray-100 text-sm font-medium">
+                {isAuthLoading ? "Cargando usuario..." : (loggedInUserId ? "Usuario Logueado (Asignación Automática)" : "Error al obtener usuario")}
+              </div>
+            </div>
 
             {/* Application-specific fields */}
             {selectedType === "application" && (

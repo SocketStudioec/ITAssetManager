@@ -399,7 +399,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
-
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * GET /api/me - OBTENER ID DEL USUARIO LOGUEADO
+   * ═══════════════════════════════════════════════════════════════════════════
+   * 
+   * Ruta protegida que devuelve el ID del usuario logueado.
+   * Es una ruta ligera para que el frontend obtenga el ID del técnico.
+   * 
+   * RESPONSE (200 OK):
+   * {
+   *   userId: string,
+   * }
+   * 
+   * ERRORES:
+   * - 401: No autorizado (si no hay sesión)
+   */
+  app.get('/api/me', isAuthenticated, async (req: any, res) => {
+    try {
+      // El middleware isAuthenticated garantiza que req.user existe
+      res.json({
+        userId: req.user.userId,
+      });
+    } catch (error) {
+      console.error("Error fetching current user ID:", error);
+      res.status(500).json({ message: "Error interno del servidor al obtener ID de usuario" });
+    }
+  });
   // =============================================================================
   // RUTAS DE GESTIÓN DE EMPRESAS
   // =============================================================================
