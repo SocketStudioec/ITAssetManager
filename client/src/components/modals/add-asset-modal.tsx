@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -40,15 +40,15 @@ interface AddAssetModalProps {
 export default function AddAssetModal({ open, onOpenChange, companyId }: AddAssetModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  const { userId: loggedInUserId, isLoading: isAuthLoading } = useAuthData(); 
-
+  
+  const { userId: loggedInUserId, isLoading: isAuthLoading } = useAuthData();
+  console.log("Aqui estoy dentro del modal", companyId)
 
   // Get technicians for assignment
-  const { data: technicians = [] } = useQuery({
-    queryKey: ["/api/technicians", companyId],
-    enabled: !!companyId,
-  });
+ // const { data: technicians = [] } = useQuery({
+   // queryKey: ["/api/technicians", companyId],
+    //enabled: !!companyId,
+  //});
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -64,8 +64,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       annualCost: 0,
       status: "active",
       location: "",
-      assignedTo: "",
-      assignedTechnicianId: loggedInUserId||"",
+      assignedTo: loggedInUserId,
       notes: "",
       applicationType: "saas",
       url: "",
@@ -84,8 +83,9 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   const selectedType = form.watch("type");
 
   const createAssetMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof formSchema>) => {
-      await apiRequest("POST", "/api/assets", data);
+    mutationFn: async (data: z.infer<typeof formSchema>) => {      
+      const response = await apiRequest("POST", `/api/assets`, data);
+      return response;
     },
     onSuccess: () => {
       toast({
@@ -97,7 +97,9 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       form.reset();
       onOpenChange(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      console.error("Error creating asset:", error);
+      
       if (isUnauthorizedError(error as Error)) {
         toast({
           title: "No autorizado",
@@ -110,26 +112,32 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
         return;
       }
       
+      // Mostrar mensaje de error más específico si está disponible
+      const errorMessage = error.response?.data?.message || error.message || "Error al crear el activo. Inténtalo de nuevo.";
+      
       toast({
         title: "Error",
-        description: "Error al crear el activo. Inténtalo de nuevo.",
+        description: errorMessage,
         variant: "destructive",
       });
     },
   });
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    //  Asegurar que el assignedTechnicianId sea el del usuario logueado
-    const dataWithTechnician = {
-      ...data,
-      companyId,
-      assignedTechnicianId: loggedInUserId,
-    };
-    createAssetMutation.mutate(dataWithTechnician);
+    console.log("Formulario enviado:", data);
+    createAssetMutation.mutate(data);
+  };
+
+  // Función para manejar el cierre del modal
+  const handleClose = () => {
+    if (!createAssetMutation.isPending) {
+      form.reset();
+      onOpenChange(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Agregar Nuevo Activo</DialogTitle>
@@ -143,7 +151,33 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Tipo de Activo</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select 
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      if (value === "application") {
+                        // Limpiar campos de "physical" que podrían ser requeridos
+                        form.setValue("serialNumber", "");
+                        form.setValue("model", "");
+                        form.setValue("manufacturer", "");
+                        form.setValue("assignedTo", "");
+                        form.setValue("location", "");
+                      } else if (value === "physical") {
+                        // Limpiar campos de "application" que podrían ser requeridos
+                        form.setValue("applicationType", "saas"); // Valor por defecto//
+                        form.setValue("url", "");
+                        form.setValue("version", "");
+                        form.setValue("domainCost", 0);
+                        form.setValue("sslCost", 0);
+                        form.setValue("hostingCost", 0);
+                        form.setValue("serverCost", 0);
+                        form.setValue("domainExpiry", undefined);
+                        form.setValue("sslExpiry", undefined);
+                        form.setValue("hostingExpiry", undefined);
+                        form.setValue("serverExpiry", undefined);
+                      }
+                    }} 
+                    defaultValue={field.value}
+                  >
                     <FormControl>
                       <SelectTrigger data-testid="select-asset-type">
                         <SelectValue placeholder="Seleccionar tipo..." />
@@ -197,27 +231,20 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
               )}
             />
 
-           <FormField
-              control={form.control}
-              name="assignedTechnicianId"
-              render={({ field }) => (
-                <FormItem className="hidden">
-                  <FormLabel>Técnico Asignado (Automático)</FormLabel>
-                  <FormControl>
-                    <Input {...field} type="hidden" value={loggedInUserId || ""} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Campo oculto para assignedTechnicianId
+            <input 
+              type="hidden" 
+              {...form.register("assignedTo")} 
+              value={loggedInUserId || ""} 
+            /> */}
             
-            {/* Mostrar el nombre del técnico asignado (usuario logueado) solo para visualización */}
+            {/* Mostrar el nombre del técnico asignado
             <div className="space-y-2">
               <FormLabel>Técnico Asignado</FormLabel>
               <div className="p-2 border rounded-md bg-gray-100 text-sm font-medium">
                 {isAuthLoading ? "Cargando usuario..." : (loggedInUserId ? "Usuario Logueado (Asignación Automática)" : "Error al obtener usuario")}
               </div>
-            </div>
+            </div> */}
 
             {/* Application-specific fields */}
             {selectedType === "application" && (
@@ -303,7 +330,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
                               data-testid="input-domain-cost"
                               className="h-8"
                             />
@@ -344,7 +371,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
                               data-testid="input-ssl-cost"
                               className="h-8"
                             />
@@ -385,7 +412,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
                               data-testid="input-hosting-cost"
                               className="h-8"
                             />
@@ -426,7 +453,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
                               data-testid="input-server-cost"
                               className="h-8"
                             />
@@ -473,7 +500,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                         type="number"
                         step="0.01"
                         placeholder="0.00" 
-                        {...field} 
+                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
                         data-testid="input-monthly-cost"
                       />
                     </FormControl>
@@ -495,7 +522,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                         type="number"
                         step="0.01"
                         placeholder="0.00" 
-                        {...field} 
+                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
                         data-testid="input-annual-cost"
                       />
                     </FormControl>
@@ -509,7 +536,8 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
               <Button 
                 type="button" 
                 variant="outline" 
-                onClick={() => onOpenChange(false)}
+                onClick={handleClose}
+                disabled={createAssetMutation.isPending}
                 data-testid="button-cancel"
               >
                 Cancelar
@@ -519,7 +547,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                 disabled={createAssetMutation.isPending}
                 data-testid="button-save-asset"
               >
-                {createAssetMutation.isPending ? "Guardando..." : "Guardar"}
+                {createAssetMutation.isPending ? "Guardando..." : "Ejemplo"}
               </Button>
             </div>
           </form>

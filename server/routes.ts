@@ -131,6 +131,7 @@ import {
   companyRegistrationSchema,
   loginSchema,
 } from "@shared/schema";
+import { z } from "zod";
 
 /**
  * FUNCIÓN PRINCIPAL DE REGISTRO DE RUTAS
@@ -446,6 +447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.userId;
       const userCompanies = await storage.getUserCompanies(userId);
+      console.log("User Companies:", userCompanies)
       res.json(userCompanies);
     } catch (error) {
       console.error("Error fetching companies:", error);
@@ -582,24 +584,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/assets', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.userId;
-      const validatedData = insertAssetSchema.parse(req.body);
+      // 1.  Accede al ID del usuario correctamente desde el token
+      const userId = req.user.id; 
+
+      // 2. Obteniene el companyId del usuario desde la base de datos
+      const userCompanies = await storage.getUserCompanies(userId);
+      if (!userCompanies || userCompanies.length === 0) {
+          return res.status(403).json({ message: "Usuario no asociado a ninguna empresa activa." });
+      }
+      const companyIdFromDB = userCompanies[0].companyId;
+
+      // 3. Inyecta el companyId en el cuerpo de la solicitud antes de la validación de Zod
+      // Esto garantiza que Zod pase y que el activo se asocie a la empresa correcta.
+      const dataToValidate = {
+        ...req.body,
+        companyId: companyIdFromDB, 
+      };
+
+      // 4. Validar los datos combinados
+      const validatedData = insertAssetSchema.parse(dataToValidate);
       
-      const asset = await storage.createAsset(validatedData);
+      // 5. lógica para asignar el técnico
+      const dataToInsert = {
+        ...validatedData,
+        assignedTo: userId,
+      };
+
+      const asset = await storage.createAsset(dataToInsert);
       
+      // 6. Registrar actividad con el companyId correcto
       await storage.logActivity({
-        companyId: validatedData.companyId,
+        companyId: companyIdFromDB, 
         userId,
         action: "created",
         entityType: "asset",
         entityId: asset.id,
         entityName: asset.name,
-      });
-      
+      }); 
       res.json(asset);
     } catch (error) {
       console.error("Error creating asset:", error);
-      res.status(400).json({ message: "Failed to create asset" });
+      
+      // Manejo de errores de Zod para mejor depuración
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Error de validación en los datos del activo",
+          errors: error.errors,
+        });
+      }
+
+      res.status(500).json({ message: "Error al crear el activo" });
     }
   });
 

@@ -59,6 +59,7 @@ export default function Applications() {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
+  console.log("Aqui estoy modificando id", selectedCompanyId)
 
   const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery({
     queryKey: ["/api/assets", selectedCompanyId],
