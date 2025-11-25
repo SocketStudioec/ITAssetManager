@@ -161,6 +161,7 @@ export default function PhysicalAssets() {
               </div>
               <Button 
                 onClick={() => setShowAddAssetModal(true)}
+                disabled={!selectedCompanyId}
                 data-testid="button-add-physical-asset"
               >
                 <Plus className="w-4 h-4 mr-2" />
@@ -304,6 +305,7 @@ export default function PhysicalAssets() {
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
+        key={selectedCompanyId}
       />
 
       {/* Maintenance History Modal */}

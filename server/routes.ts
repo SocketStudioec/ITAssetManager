@@ -585,7 +585,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/assets', isAuthenticated, async (req: any, res) => {
     try {
       // 1.  Accede al ID del usuario correctamente desde el token
-      const userId = req.user.id; 
+      const userId = req.user.userId;
+      console.log("Creating asset for userId:", userId); 
 
       // 2. Obteniene el companyId del usuario desde la base de datos
       const userCompanies = await storage.getUserCompanies(userId);

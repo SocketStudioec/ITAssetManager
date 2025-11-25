@@ -171,6 +171,7 @@ export default function Applications() {
               </div>
               <Button 
                 onClick={() => setShowAddAssetModal(true)}
+                disabled={!selectedCompanyId}
                 data-testid="button-add-application"
               >
                 <Plus className="w-4 h-4 mr-2" />

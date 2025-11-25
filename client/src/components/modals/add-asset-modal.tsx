@@ -53,7 +53,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      companyId,
+      companyId: companyId || "",
       name: "",
       type: "physical",
       description: "",
@@ -79,6 +79,10 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       serverExpiry: undefined,
     },
   });
+
+  useEffect(() => {
+    form.setValue("companyId", companyId || "");
+  }, [companyId, form]);
 
   const selectedType = form.watch("type");
 
@@ -144,7 +148,9 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
         </DialogHeader>
         
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit, (errors)=>{
+            console.error("Errores de validación del formulario:", errors);
+          })} className="space-y-4">
             <FormField
               control={form.control}
               name="type"
@@ -330,7 +336,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))} 
                               data-testid="input-domain-cost"
                               className="h-8"
                             />
@@ -371,7 +377,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
                               data-testid="input-ssl-cost"
                               className="h-8"
                             />
@@ -412,7 +418,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))} 
                               data-testid="input-hosting-cost"
                               className="h-8"
                             />
@@ -453,7 +459,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                               type="number"
                               step="0.01"
                               placeholder="0.00" 
-                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
+                              {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
                               data-testid="input-server-cost"
                               className="h-8"
                             />
@@ -500,7 +506,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                         type="number"
                         step="0.01"
                         placeholder="0.00" 
-                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))}
+                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
                         data-testid="input-monthly-cost"
                       />
                     </FormControl>
@@ -522,7 +528,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                         type="number"
                         step="0.01"
                         placeholder="0.00" 
-                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? 0 : parseFloat(e.target.value))} 
+                        {...field} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))} 
                         data-testid="input-annual-cost"
                       />
                     </FormControl>
@@ -547,7 +553,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                 disabled={createAssetMutation.isPending}
                 data-testid="button-save-asset"
               >
-                {createAssetMutation.isPending ? "Guardando..." : "Ejemplo"}
+                {createAssetMutation.isPending ? "Guardando..." : "Guardar"}
               </Button>
             </div>
           </form>
