@@ -588,18 +588,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.userId;
       console.log("Creating asset for userId:", userId); 
 
-      // 2. Obteniene el companyId del usuario desde la base de datos
-      const userCompanies = await storage.getUserCompanies(userId);
-      if (!userCompanies || userCompanies.length === 0) {
-          return res.status(403).json({ message: "Usuario no asociado a ninguna empresa activa." });
-      }
-      const companyIdFromDB = userCompanies[0].companyId;
+      // 2. Usar el companyId enviado en el cuerpo de la solicitud (req.body.companyId).
+      // El frontend es responsable de enviar el ID de la compañía activa.
+      const companyIdToUse = req.body.companyId;
 
-      // 3. Inyecta el companyId en el cuerpo de la solicitud antes de la validación de Zod
-      // Esto garantiza que Zod pase y que el activo se asocie a la empresa correcta.
+      // Validación de seguridad: Asegurar que el companyId esté presente
+      if (!companyIdToUse) {
+        return res.status(400).json({ message: "companyId es requerido en el cuerpo de la solicitud." });
+      }
+
+      // 3. Inyectar el companyId en el cuerpo de la solicitud antes de la validación de Zod
       const dataToValidate = {
         ...req.body,
-        companyId: companyIdFromDB, 
+        companyId: companyIdToUse, 
       };
 
       // 4. Validar los datos combinados
@@ -615,7 +616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // 6. Registrar actividad con el companyId correcto
       await storage.logActivity({
-        companyId: companyIdFromDB, 
+        companyId: companyIdToUse, 
         userId,
         action: "created",
         entityType: "asset",

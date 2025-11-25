@@ -87,8 +87,13 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   const selectedType = form.watch("type");
 
   const createAssetMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof formSchema>) => {      
-      const response = await apiRequest("POST", `/api/assets`, data);
+    mutationFn: async (data: z.infer<typeof formSchema>) => {
+      // Asegurarse de que el companyId esté en los datos enviados
+      const dataWithCompanyId = {
+        ...data,
+        companyId: companyId, // Usar el prop companyId que está actualizado
+      };
+      const response = await apiRequest("POST", `/api/assets`, dataWithCompanyId);
       return response;
     },
     onSuccess: () => {
