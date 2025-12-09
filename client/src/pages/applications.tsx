@@ -59,7 +59,7 @@ export default function Applications() {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
-  console.log("Aqui estoy modificando id", selectedCompanyId)
+  //console.log("Aqui estoy modificando id", selectedCompanyId)
 
   const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery({
     queryKey: ["/api/assets", selectedCompanyId],
@@ -194,6 +194,7 @@ export default function Applications() {
                 ))
               ) : filteredApplications.length > 0 ? (
                 filteredApplications.map((app: any) => (
+                  console.log("Aplicación mostrada:", app),
                   <Card key={app.id} className={`border-border hover:shadow-md transition-shadow ${
                     getExpiryWarning(app)?.type === 'expired' ? 'border-destructive' :
                     getExpiryWarning(app)?.type === 'expiring' ? 'border-chart-4' : ''
@@ -249,17 +250,17 @@ export default function Applications() {
                           </div>
                         )}
                         <div className="border-t pt-2 mt-3">
-                          <div className="text-xs text-muted-foreground mb-2">Costos Mensuales:</div>
+                          <div className="text-xs text-muted-foreground mb-2">Costos Mensuales</div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Aplicación:</span>
                               <span className="text-foreground font-medium">
-                                ${Number(app.monthlyCost || 0).toLocaleString()}
+                                ${Number(app.monthly_cost || 0).toLocaleString()}
                               </span>
                             </div>
-                            {(Number(app.domainCost) > 0 || Number(app.sslCost) > 0 || Number(app.hostingCost) > 0 || Number(app.serverCost) > 0) && (
+                            {(Number(app.domain_cost) > 0 || Number(app.sslCost) > 0 || Number(app.hostingCost) > 0 || Number(app.serverCost) > 0) && (
                               <>
-                                {Number(app.domainCost) > 0 && (
+                                {Number(app.domain_cost) > 0 && (
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Dominio
@@ -269,7 +270,7 @@ export default function Applications() {
                                     </span>
                                     <div className="text-right">
                                       <div className="text-foreground font-medium">
-                                        ${Number(app.domainCost).toLocaleString()}
+                                        ${Number(app.domain_cost).toLocaleString()}
                                       </div>
                                       {app.domainExpiry && (
                                         <div className={`text-xs ${
@@ -283,7 +284,7 @@ export default function Applications() {
                                     </div>
                                   </div>
                                 )}
-                                {Number(app.sslCost) > 0 && (
+                                {Number(app.ssl_cost) > 0 && (
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       SSL
@@ -293,7 +294,7 @@ export default function Applications() {
                                     </span>
                                     <div className="text-right">
                                       <div className="text-foreground font-medium">
-                                        ${Number(app.sslCost).toLocaleString()}
+                                        ${Number(app.ssl_cost).toLocaleString()}
                                       </div>
                                       {app.sslExpiry && (
                                         <div className={`text-xs ${
@@ -307,7 +308,7 @@ export default function Applications() {
                                     </div>
                                   </div>
                                 )}
-                                {Number(app.hostingCost) > 0 && (
+                                {Number(app.hosting_cost) > 0 && (
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Hosting
@@ -317,7 +318,7 @@ export default function Applications() {
                                     </span>
                                     <div className="text-right">
                                       <div className="text-foreground font-medium">
-                                        ${Number(app.hostingCost).toLocaleString()}
+                                        ${Number(app.hosting_cost).toLocaleString()}
                                       </div>
                                       {app.hostingExpiry && (
                                         <div className={`text-xs ${
@@ -325,13 +326,13 @@ export default function Applications() {
                                           new Date(app.hostingExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
                                           'text-muted-foreground'
                                         }`}>
-                                          {new Date(app.hostingExpiry).toLocaleDateString()}
+                                          {new Date(app.hosting_expiry).toLocaleDateString()}
                                         </div>
                                       )}
                                     </div>
                                   </div>
                                 )}
-                                {Number(app.serverCost) > 0 && (
+                                {Number(app.server_cost) > 0 && (
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Servidor
@@ -341,7 +342,7 @@ export default function Applications() {
                                     </span>
                                     <div className="text-right">
                                       <div className="text-foreground font-medium">
-                                        ${Number(app.serverCost).toLocaleString()}
+                                        ${Number(app.server_cost).toLocaleString()}
                                       </div>
                                       {app.serverExpiry && (
                                         <div className={`text-xs ${
@@ -360,7 +361,7 @@ export default function Applications() {
                             <div className="flex justify-between col-span-2 pt-1 border-t border-muted">
                               <span className="text-muted-foreground font-medium">Total:</span>
                               <span className="text-foreground font-bold">
-                                ${(Number(app.monthlyCost || 0) + Number(app.domainCost || 0) + Number(app.sslCost || 0) + Number(app.hostingCost || 0) + Number(app.serverCost || 0)).toLocaleString()}
+                                ${(Number(app.monthly_cost || 0) + Number(app.domain_cost || 0) + Number(app.ssl_cost || 0) + Number(app.hosting_cost || 0) + Number(app.server_cost || 0)).toLocaleString()}
                               </span>
                             </div>
                           </div>
@@ -419,6 +420,7 @@ export default function Applications() {
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
+        key={selectedCompanyId}
       />
     </div>
   );

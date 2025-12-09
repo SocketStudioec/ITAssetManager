@@ -75,7 +75,7 @@ export interface Asset {
   applicationType: ApplicationType | null;
   url: string | null;
   version: string | null;
-  domainCost: number;
+  domain_cost: number;
   sslCost: number;
   hostingCost: number;
   serverCost: number;

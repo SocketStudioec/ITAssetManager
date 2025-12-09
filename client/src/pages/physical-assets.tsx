@@ -201,7 +201,7 @@ export default function PhysicalAssets() {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Serial:</span>
-                          <span className="text-foreground font-medium">{asset.serialNumber || "N/A"}</span>
+                          <span className="text-foreground font-medium">{asset.serial_number || "N/A"}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Ubicación:</span>
@@ -230,7 +230,7 @@ export default function PhysicalAssets() {
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Costo Mensual:</span>
                           <span className="text-foreground font-medium">
-                            ${Number(asset.monthlyCost || 0).toLocaleString()}
+                            ${Number(asset.monthly_cost || 0).toLocaleString()}
                           </span>
                         </div>
                       </div>

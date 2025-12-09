@@ -42,7 +42,6 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   const queryClient = useQueryClient();
   
   const { userId: loggedInUserId, isLoading: isAuthLoading } = useAuthData();
-  console.log("Aqui estoy dentro del modal", companyId)
 
   // Get technicians for assignment
  // const { data: technicians = [] } = useQuery({
@@ -50,23 +49,22 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
     //enabled: !!companyId,
   //});
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
+  // Función para obtener los valores iniciales del formulario
+    const getDefaultValues = () => ({
       companyId: companyId || "",
       name: "",
-      type: "physical",
+      type: "physical" as const,
       description: "",
       serialNumber: "",
       model: "",
       manufacturer: "",
       monthlyCost: 0,
       annualCost: 0,
-      status: "active",
+      status: "active" as const,
       location: "",
       assignedTo: loggedInUserId,
       notes: "",
-      applicationType: "saas",
+      applicationType: "saas" as const,
       url: "",
       version: "",
       domainCost: 0,
@@ -77,17 +75,33 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       sslExpiry: undefined,
       hostingExpiry: undefined,
       serverExpiry: undefined,
-    },
+    });
+
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: getDefaultValues(),
   });
 
   useEffect(() => {
-    form.setValue("companyId", companyId || "");
+    if (open) {
+      form.reset(getDefaultValues());
+    }
+  }, [open, companyId, loggedInUserId]);
+
+  useEffect(() => {
+    if (companyId) {
+      form.setValue("companyId", companyId, { shouldValidate: true });
+    }
   }, [companyId, form]);
 
   const selectedType = form.watch("type");
 
   const createAssetMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
+      //Validar que companyId esté presente
+      if (!data.companyId) {
+        throw new Error("El ID de la compañía es obligatorio.");
+      }      
       // Asegurarse de que el companyId esté en los datos enviados
       const dataWithCompanyId = {
         ...data,
@@ -103,7 +117,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
       });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      form.reset();
+      form.reset(getDefaultValues());
       onOpenChange(false);
     },
     onError: (error: any) => {
@@ -140,7 +154,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   // Función para manejar el cierre del modal
   const handleClose = () => {
     if (!createAssetMutation.isPending) {
-      form.reset();
+      form.reset(getDefaultValues());
       onOpenChange(false);
     }
   };
@@ -174,7 +188,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
                         form.setValue("location", "");
                       } else if (value === "physical") {
                         // Limpiar campos de "application" que podrían ser requeridos
-                        form.setValue("applicationType", "saas"); // Valor por defecto//
+                        form.setValue("applicationType", "saas" as const);
                         form.setValue("url", "");
                         form.setValue("version", "");
                         form.setValue("domainCost", 0);
