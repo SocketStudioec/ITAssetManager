@@ -194,7 +194,7 @@ export default function Applications() {
                 ))
               ) : filteredApplications.length > 0 ? (
                 filteredApplications.map((app: any) => (
-                  console.log("Aplicación mostrada:", app),
+                  //console.log("Aplicación mostrada:", app),
                   <Card key={app.id} className={`border-border hover:shadow-md transition-shadow ${
                     getExpiryWarning(app)?.type === 'expired' ? 'border-destructive' :
                     getExpiryWarning(app)?.type === 'expiring' ? 'border-chart-4' : ''

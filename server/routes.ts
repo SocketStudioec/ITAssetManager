@@ -447,7 +447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.userId;
       const userCompanies = await storage.getUserCompanies(userId);
-      console.log("User Companies:", userCompanies)
+      //console.log("User Companies:", userCompanies)
       res.json(userCompanies);
     } catch (error) {
       console.error("Error fetching companies:", error);
@@ -586,7 +586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // 1.  Accede al ID del usuario correctamente desde el token
       const userId = req.user.userId;
-      console.log("Creating asset for userId:", userId); 
+      //console.log("Creating asset for userId:", userId); 
 
       // 2. Usar el companyId enviado en el cuerpo de la solicitud (req.body.companyId).
       // El frontend es responsable de enviar el ID de la compañía activa.

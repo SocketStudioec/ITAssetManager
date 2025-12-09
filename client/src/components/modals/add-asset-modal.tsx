@@ -147,7 +147,7 @@ export default function AddAssetModal({ open, onOpenChange, companyId }: AddAsse
   });
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    console.log("Formulario enviado:", data);
+    //console.log("Formulario enviado:", data);
     createAssetMutation.mutate(data);
   };
 
