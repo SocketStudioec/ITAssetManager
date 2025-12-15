@@ -482,29 +482,28 @@ export class DatabaseStorage implements IStorage {
     return result.rows[0] as Asset;
   }
 
-  async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
-    const fields: string[] = [];
-    const values: any[] = [];
-    let paramIndex = 1;
+async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let paramIndex = 1;
 
-    Object.entries(asset).forEach(([key, value]) => {
-      if (value !== undefined) {
-        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-        fields.push(`${snakeKey} = $${paramIndex}`);
-        values.push(value);
-        paramIndex++;
-      }
-    });
+  Object.entries(asset).forEach(([key, value]) => {
+    if (value !== undefined) {
+      const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+      fields.push(`${snakeKey} = $${paramIndex}`);
+      values.push(value);
+      paramIndex++;
+    }
+  });
 
-    fields.push(`updated_at = NOW()`);
-    values.push(id);
+  fields.push(`updated_at = NOW()`);
+  values.push(id);
 
-    const result = await pool.query(
-      `UPDATE assets SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-      values
-    );
-    return result.rows[0] as Asset;
-  }
+  const query = `UPDATE assets SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+  const result = await pool.query(query, values); 
+  const updatedAsset = result.rows[0] as Asset;
+  return updatedAsset;
+}
 
   async deleteAsset(id: string, companyId: string): Promise<void> {
     await pool.query(
@@ -797,26 +796,35 @@ export class DatabaseStorage implements IStorage {
   // ACTIVITY LOG
   // ==========================================================================
   
-  async logActivity(activity: {
-    companyId: string;
-    userId: string;
-    action: string;
-    entityType: string;
-    entityId?: string;
-    entityName?: string;
-    details?: string;
-  }): Promise<ActivityLog> {
-    const result = await pool.query(
-      `INSERT INTO activity_log (company_id, user_id, action, entity_type, entity_id, entity_name, details)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-      [
-        activity.companyId, activity.userId, activity.action, activity.entityType,
-        activity.entityId, activity.entityName, activity.details
-      ]
-    );
-    return result.rows[0] as ActivityLog;
+async logActivity(activity: {
+  companyId: string;
+  userId: string;
+  action: string;
+  entityType: string;
+  entityId?: string;
+  entityName?: string;
+  details?: string;
+}): Promise<ActivityLog> {  
+  if (!activity.companyId) {
+    throw new Error(`companyId es requerido para logActivity. Recibido: ${activity.companyId}`);
   }
+  
+  const result = await pool.query(
+    `INSERT INTO activity_log (company_id, user_id, action, entity_type, entity_id, entity_name, details)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [
+      activity.companyId,
+      activity.userId, 
+      activity.action, 
+      activity.entityType,
+      activity.entityId, 
+      activity.entityName, 
+      activity.details
+    ]
+  );
+  return result.rows[0] as ActivityLog;
+}
 
   async getRecentActivity(companyId: string, limit: number = 10): Promise<(ActivityLog & { user: User })[]> {
     const result = await pool.query(

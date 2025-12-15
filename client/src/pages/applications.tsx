@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,14 +12,30 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddAssetModal from "@/components/modals/add-asset-modal";
+import EditAssetModal from "@/components/modals/edit-asset-modal";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Plus, Search, Filter, Edit2, Trash2, Eye, ExternalLink, AlertTriangle, Calendar } from "lucide-react";
 
 export default function Applications() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const queryClient = useQueryClient();
+  
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // Estados para edición y eliminación
+  const [selectedAssetForEdit, setSelectedAssetForEdit] = useState<any>(null);
+  const [assetToDelete, setAssetToDelete] = useState<any>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -36,14 +53,14 @@ export default function Applications() {
   }, [isAuthenticated, isLoading, toast]);
 
   // Check if we're in support mode
-  const { data: supportStatus } = useQuery({
+  const { data: supportStatus } = useQuery<{ supportMode: boolean; company: any }>({
     queryKey: ["/api/admin/support-status"],
     enabled: isAuthenticated,
     retry: false,
     refetchInterval: 10000,
   });
 
-  const { data: userCompanies = [] } = useQuery({
+  const { data: userCompanies = [] } = useQuery<any[]>({
     queryKey: ["/api/companies"],
     enabled: isAuthenticated && !supportStatus?.supportMode,
   });
@@ -55,13 +72,12 @@ export default function Applications() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (Array.isArray(companies) && companies.length > 0 && !selectedCompanyId) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
-  //console.log("Aqui estoy modificando id", selectedCompanyId)
 
-  const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery({
+  const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery<any[]>({
     queryKey: ["/api/assets", selectedCompanyId],
     enabled: !!selectedCompanyId,
   });
@@ -79,6 +95,57 @@ export default function Applications() {
     }
   }, [assetsError, toast]);
 
+  // Mutation para eliminar aplicación
+  const deleteAssetMutation = useMutation({
+    mutationFn: async ({ assetId, companyId }: { assetId: string; companyId: string }) => {
+      const response = await apiRequest("DELETE", `/api/assets/${assetId}/${companyId}`);
+      return response;
+    },
+    onSuccess: () => {
+      toast({
+        title: "Aplicación eliminada",
+        description: "La aplicación se ha eliminado exitosamente.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setShowDeleteDialog(false);
+      setAssetToDelete(null);
+    },
+    onError: (error: any) => {
+      console.error("Error deleting application:", error);
+      
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "No autorizado",
+          description: "Redirigiendo al inicio de sesión...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      const errorMessage = error.response?.data?.message || error.message || "Error al eliminar la aplicación.";
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Manejar confirmación de eliminación
+  const handleDeleteConfirm = () => {
+    if (assetToDelete) {
+      deleteAssetMutation.mutate({
+        assetId: assetToDelete.id,
+        companyId: selectedCompanyId,
+      });
+    }
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -88,7 +155,7 @@ export default function Applications() {
   }
 
   // Filter application assets only
-  const applications = assets.filter((asset: any) => asset.type === "application");
+  const applications = Array.isArray(assets) ? assets.filter((asset: any) => asset.type === "application") : [];
   
   // Filter by search term
   const filteredApplications = applications.filter((app: any) =>
@@ -104,6 +171,8 @@ export default function Applications() {
         return <Badge variant="secondary">Inactivo</Badge>;
       case "deprecated":
         return <Badge className="bg-chart-4 text-white">Obsoleto</Badge>;
+      case "disposed":
+        return <Badge className="bg-chart-4 text-white">Desechado</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -114,10 +183,10 @@ export default function Applications() {
     const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     
     const expiries = [
-      { name: 'Dominio', date: app.domainExpiry },
-      { name: 'SSL', date: app.sslExpiry },
-      { name: 'Hosting', date: app.hostingExpiry },
-      { name: 'Servidor', date: app.serverExpiry }
+      { name: 'Dominio', date: app.domain_expiry, field: 'domain_expiry' },
+      { name: 'SSL', date: app.ssl_expiry, field: 'ssl_expiry' },
+      { name: 'Hosting', date: app.hosting_expiry, field: 'hosting_expiry' },
+      { name: 'Servidor', date: app.server_expiry, field: 'server_expiry' }
     ].filter(item => item.date);
     
     const expired = expiries.filter(item => new Date(item.date) < now);
@@ -194,7 +263,6 @@ export default function Applications() {
                 ))
               ) : filteredApplications.length > 0 ? (
                 filteredApplications.map((app: any) => (
-                  //console.log("Aplicación mostrada:", app),
                   <Card key={app.id} className={`border-border hover:shadow-md transition-shadow ${
                     getExpiryWarning(app)?.type === 'expired' ? 'border-destructive' :
                     getExpiryWarning(app)?.type === 'expiring' ? 'border-chart-4' : ''
@@ -209,7 +277,7 @@ export default function Applications() {
                             {getExpiryWarning(app) && (
                               <AlertTriangle className={`w-4 h-4 ${
                                 getExpiryWarning(app)?.type === 'expired' ? 'text-destructive' : 'text-chart-4'
-                              }`} title={`${getExpiryWarning(app)?.count} servicio(s) ${getExpiryWarning(app)?.type === 'expired' ? 'expirado(s)' : 'próximo(s) a expirar'}`} />
+                              }`} />
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
@@ -230,7 +298,7 @@ export default function Applications() {
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Tipo:</span>
                           <span className="text-foreground font-medium">
-                            {app.applicationType === 'saas' ? 'SaaS' : 'Desarrollo Propio'}
+                            {app.application_type === 'saas' ? 'SaaS' : 'Desarrollo Propio'}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -258,13 +326,13 @@ export default function Applications() {
                                 ${Number(app.monthly_cost || 0).toLocaleString()}
                               </span>
                             </div>
-                            {(Number(app.domain_cost) > 0 || Number(app.sslCost) > 0 || Number(app.hostingCost) > 0 || Number(app.serverCost) > 0) && (
+                            {(Number(app.domain_cost) > 0 || Number(app.ssl_cost) > 0 || Number(app.hosting_cost) > 0 || Number(app.server_cost) > 0) && (
                               <>
                                 {Number(app.domain_cost) > 0 && (
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Dominio
-                                      {app.domainExpiry && new Date(app.domainExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
+                                      {app.domain_expiry && new Date(app.domain_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
                                         <AlertTriangle className="w-3 h-3 ml-1 text-chart-4" />
                                       )}
                                     </span>
@@ -272,13 +340,13 @@ export default function Applications() {
                                       <div className="text-foreground font-medium">
                                         ${Number(app.domain_cost).toLocaleString()}
                                       </div>
-                                      {app.domainExpiry && (
+                                      {app.domain_expiry && (
                                         <div className={`text-xs ${
-                                          new Date(app.domainExpiry) < new Date() ? 'text-destructive' :
-                                          new Date(app.domainExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
+                                          new Date(app.domain_expiry) < new Date() ? 'text-destructive' :
+                                          new Date(app.domain_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
                                           'text-muted-foreground'
                                         }`}>
-                                          {new Date(app.domainExpiry).toLocaleDateString()}
+                                          {new Date(app.domain_expiry).toLocaleDateString()}
                                         </div>
                                       )}
                                     </div>
@@ -288,7 +356,7 @@ export default function Applications() {
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       SSL
-                                      {app.sslExpiry && new Date(app.sslExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
+                                      {app.ssl_expiry && new Date(app.ssl_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
                                         <AlertTriangle className="w-3 h-3 ml-1 text-chart-4" />
                                       )}
                                     </span>
@@ -296,13 +364,13 @@ export default function Applications() {
                                       <div className="text-foreground font-medium">
                                         ${Number(app.ssl_cost).toLocaleString()}
                                       </div>
-                                      {app.sslExpiry && (
+                                      {app.ssl_expiry && (
                                         <div className={`text-xs ${
-                                          new Date(app.sslExpiry) < new Date() ? 'text-destructive' :
-                                          new Date(app.sslExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
+                                          new Date(app.ssl_expiry) < new Date() ? 'text-destructive' :
+                                          new Date(app.ssl_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
                                           'text-muted-foreground'
                                         }`}>
-                                          {new Date(app.sslExpiry).toLocaleDateString()}
+                                          {new Date(app.ssl_expiry).toLocaleDateString()}
                                         </div>
                                       )}
                                     </div>
@@ -312,7 +380,7 @@ export default function Applications() {
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Hosting
-                                      {app.hostingExpiry && new Date(app.hostingExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
+                                      {app.hosting_expiry && new Date(app.hosting_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
                                         <AlertTriangle className="w-3 h-3 ml-1 text-chart-4" />
                                       )}
                                     </span>
@@ -320,10 +388,10 @@ export default function Applications() {
                                       <div className="text-foreground font-medium">
                                         ${Number(app.hosting_cost).toLocaleString()}
                                       </div>
-                                      {app.hostingExpiry && (
+                                      {app.hosting_expiry && (
                                         <div className={`text-xs ${
-                                          new Date(app.hostingExpiry) < new Date() ? 'text-destructive' :
-                                          new Date(app.hostingExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
+                                          new Date(app.hosting_expiry) < new Date() ? 'text-destructive' :
+                                          new Date(app.hosting_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
                                           'text-muted-foreground'
                                         }`}>
                                           {new Date(app.hosting_expiry).toLocaleDateString()}
@@ -336,7 +404,7 @@ export default function Applications() {
                                   <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground flex items-center">
                                       Servidor
-                                      {app.serverExpiry && new Date(app.serverExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
+                                      {app.server_expiry && new Date(app.server_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
                                         <AlertTriangle className="w-3 h-3 ml-1 text-chart-4" />
                                       )}
                                     </span>
@@ -344,13 +412,13 @@ export default function Applications() {
                                       <div className="text-foreground font-medium">
                                         ${Number(app.server_cost).toLocaleString()}
                                       </div>
-                                      {app.serverExpiry && (
+                                      {app.server_expiry && (
                                         <div className={`text-xs ${
-                                          new Date(app.serverExpiry) < new Date() ? 'text-destructive' :
-                                          new Date(app.serverExpiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
+                                          new Date(app.server_expiry) < new Date() ? 'text-destructive' :
+                                          new Date(app.server_expiry) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-chart-4' :
                                           'text-muted-foreground'
                                         }`}>
-                                          {new Date(app.serverExpiry).toLocaleDateString()}
+                                          {new Date(app.server_expiry).toLocaleDateString()}
                                         </div>
                                       )}
                                     </div>
@@ -373,14 +441,37 @@ export default function Applications() {
                           <Button variant="ghost" size="sm" data-testid={`button-view-${app.id}`}>
                             <Eye className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" data-testid={`button-edit-${app.id}`}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => setSelectedAssetForEdit(app)}
+                            data-testid={`button-edit-${app.id}`}
+                          >
                             <Edit2 className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" data-testid={`button-access-${app.id}`}>
-                            <ExternalLink className="w-4 h-4" />
-                          </Button>
+                          {app.url && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              asChild
+                              data-testid={`button-access-${app.id}`}
+                            >
+                              <a href={app.url} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            </Button>
+                          )}
                         </div>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" data-testid={`button-delete-${app.id}`}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-destructive hover:text-destructive" 
+                          onClick={() => {
+                            setAssetToDelete(app);
+                            setShowDeleteDialog(true);
+                          }}
+                          data-testid={`button-delete-${app.id}`}
+                        >
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -416,12 +507,55 @@ export default function Applications() {
         </main>
       </div>
 
+      {/* Modal para agregar aplicación */}
       <AddAssetModal
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
         key={selectedCompanyId}
       />
+
+      {/* Modal para editar aplicación */}
+      {selectedAssetForEdit && (
+        <EditAssetModal
+          open={!!selectedAssetForEdit}
+          onOpenChange={(open) => !open && setSelectedAssetForEdit(null)}
+          asset={selectedAssetForEdit}
+          companyId={selectedCompanyId}
+        />
+      )}
+
+      {/* Diálogo de confirmación para eliminar */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Confirmar Eliminación
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar la aplicación <strong>{assetToDelete?.name}</strong>?
+              Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleteAssetMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteAssetMutation.isPending}
+            >
+              {deleteAssetMutation.isPending ? "Eliminando..." : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

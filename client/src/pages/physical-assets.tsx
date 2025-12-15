@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,21 +16,31 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import AddAssetModal from "@/components/modals/add-asset-modal";
-import { Plus, Search, Filter, Edit2, Trash2, Eye, Wrench, Calendar } from "lucide-react";
+import EditAssetModal from "@/components/modals/edit-asset-modal";
+import { Plus, Search, Filter, Edit2, Trash2, Eye, Wrench, Calendar, AlertTriangle } from "lucide-react";
 
 export default function PhysicalAssets() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const queryClient = useQueryClient();
+  
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAssetForMaintenance, setSelectedAssetForMaintenance] = useState<string | null>(null);
+  
+  // Estados para edición y eliminación
+  const [selectedAssetForEdit, setSelectedAssetForEdit] = useState<any>(null);
+  const [assetToDelete, setAssetToDelete] = useState<any>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Get maintenance records for selected asset
-  const { data: maintenanceRecords = [], isLoading: isMaintenanceLoading } = useQuery({
+  const { data: maintenanceRecords = [], isLoading: isMaintenanceLoading } = useQuery<any[]>({
     queryKey: ["/api/maintenance/asset", selectedAssetForMaintenance, selectedCompanyId],
     enabled: !!selectedAssetForMaintenance && !!selectedCompanyId,
   });
@@ -50,14 +61,14 @@ export default function PhysicalAssets() {
   }, [isAuthenticated, isLoading, toast]);
 
   // Check if we're in support mode
-  const { data: supportStatus } = useQuery({
+  const { data: supportStatus } = useQuery<{ supportMode: boolean; company: any }>({
     queryKey: ["/api/admin/support-status"],
     enabled: isAuthenticated,
     retry: false,
     refetchInterval: 10000,
   });
 
-  const { data: userCompanies = [] } = useQuery({
+  const { data: userCompanies = [] } = useQuery<any[]>({
     queryKey: ["/api/companies"],
     enabled: isAuthenticated && !supportStatus?.supportMode,
   });
@@ -69,12 +80,12 @@ export default function PhysicalAssets() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (Array.isArray(companies) && companies.length > 0 && !selectedCompanyId) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
 
-  const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery({
+  const { data: assets = [], isLoading: isAssetsLoading, error: assetsError } = useQuery<any[]>({
     queryKey: ["/api/assets", selectedCompanyId],
     enabled: !!selectedCompanyId,
   });
@@ -92,6 +103,63 @@ export default function PhysicalAssets() {
     }
   }, [assetsError, toast]);
 
+  // Mutation para eliminar activo
+  const deleteAssetMutation = useMutation({
+    mutationFn: async ({ assetId, companyId }: { assetId: string; companyId: string }) => {
+      const response = await apiRequest("DELETE", `/api/assets/${assetId}/${companyId}`);
+      return response;
+    },
+    onSuccess: () => {
+      toast({
+        title: "Activo eliminado",
+        description: "El activo se ha eliminado exitosamente.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setShowDeleteDialog(false);
+      setAssetToDelete(null);
+    },
+    onError: (error: any) => {
+      console.error("Error deleting asset:", error);
+      
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "No autorizado",
+          description: "Redirigiendo al inicio de sesión...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      const errorMessage = error.response?.data?.message || error.message || "Error al eliminar el activo.";
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Manejar confirmación de eliminación
+  const handleDeleteConfirm = () => {
+    if (assetToDelete) {
+      deleteAssetMutation.mutate({
+        assetId: assetToDelete.id,
+        companyId: selectedCompanyId,
+      });
+    }
+  };
+
+  // Abrir diálogo de eliminación
+  const openDeleteDialog = (asset: any) => {
+    setAssetToDelete(asset);
+    setShowDeleteDialog(true);
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -101,7 +169,7 @@ export default function PhysicalAssets() {
   }
 
   // Filter physical assets only
-  const physicalAssets = assets.filter((asset: any) => asset.type === "physical");
+  const physicalAssets = Array.isArray(assets) ? assets.filter((asset: any) => asset.type === "physical") : [];
   
   // Filter by search term
   const filteredAssets = physicalAssets.filter((asset: any) =>
@@ -120,6 +188,8 @@ export default function PhysicalAssets() {
         return <Badge variant="secondary">Inactivo</Badge>;
       case "deprecated":
         return <Badge className="bg-chart-4 text-white">Obsoleto</Badge>;
+      case "disposed":
+        return <Badge className="bg-chart-4 text-white">Desechado</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -252,7 +322,12 @@ export default function PhysicalAssets() {
                             <Button variant="ghost" size="sm" data-testid={`button-view-${asset.id}`}>
                               <Eye className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" data-testid={`button-edit-${asset.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => setSelectedAssetForEdit(asset)}
+                              data-testid={`button-edit-${asset.id}`}
+                            >
                               <Edit2 className="w-4 h-4" />
                             </Button>
                             <Button 
@@ -264,7 +339,13 @@ export default function PhysicalAssets() {
                               <Calendar className="w-4 h-4" />
                             </Button>
                           </div>
-                          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" data-testid={`button-delete-${asset.id}`}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-destructive hover:text-destructive" 
+                            onClick={() => openDeleteDialog(asset)}
+                            data-testid={`button-delete-${asset.id}`}
+                          >
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -301,12 +382,55 @@ export default function PhysicalAssets() {
         </main>
       </div>
 
+      {/* Modal para agregar activo */}
       <AddAssetModal
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
         key={selectedCompanyId}
       />
+
+      {/* Modal para editar activo */}
+      {selectedAssetForEdit && (
+        <EditAssetModal
+          open={!!selectedAssetForEdit}
+          onOpenChange={(open) => !open && setSelectedAssetForEdit(null)}
+          asset={selectedAssetForEdit}
+          companyId={selectedCompanyId}
+        />
+      )}
+
+      {/* Diálogo de confirmación para eliminar */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Confirmar Eliminación
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar el activo <strong>{assetToDelete?.name}</strong>?
+              Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleteAssetMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteAssetMutation.isPending}
+            >
+              {deleteAssetMutation.isPending ? "Eliminando..." : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Maintenance History Modal */}
       <Dialog 
@@ -330,112 +454,22 @@ export default function PhysicalAssets() {
                     </CardContent>
                   </Card>
                 ))
-              ) : maintenanceRecords.length > 0 ? (
+              ) : Array.isArray(maintenanceRecords) && maintenanceRecords.length > 0 ? (
                 maintenanceRecords.map((record: any) => (
                   <Card key={record.id} className="border-border">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">{record.title || record.description}</CardTitle>
-                        <div className="flex items-center space-x-2">
-                          <Badge variant={record.maintenanceType === 'emergency' ? 'destructive' : 
-                                        record.maintenanceType === 'corrective' ? 'secondary' : 'outline'}>
-                            {record.maintenanceType === 'preventive' ? 'Preventivo' :
-                             record.maintenanceType === 'corrective' ? 'Correctivo' :
-                             record.maintenanceType === 'emergency' ? 'Emergencia' :
-                             record.maintenanceType === 'upgrade' ? 'Actualización' :
-                             record.maintenanceType}
-                          </Badge>
-                          <Badge variant={record.status === 'completed' ? 'default' : 
-                                        record.status === 'in_progress' ? 'secondary' : 
-                                        record.status === 'cancelled' ? 'destructive' : 'outline'}>
-                            {record.status === 'completed' ? 'Completado' :
-                             record.status === 'in_progress' ? 'En Progreso' :
-                             record.status === 'scheduled' ? 'Programado' :
-                             record.status === 'cancelled' ? 'Cancelado' :
-                             record.status}
-                          </Badge>
-                        </div>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium">{record.title || record.description}</h4>
+                        <Badge>{record.maintenanceType}</Badge>
                       </div>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <p className="text-muted-foreground mb-2">Descripción:</p>
-                          <p className="text-foreground">{record.description}</p>
-                        </div>
-                        <div className="space-y-2">
-                          {record.vendor && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Proveedor:</span>
-                              <span className="text-foreground font-medium">{record.vendor}</span>
-                            </div>
-                          )}
-                          {record.technician && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Técnico:</span>
-                              <span className="text-foreground font-medium">{record.technician}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Fecha Programada:</span>
-                            <span className="text-foreground font-medium">
-                              {record.scheduledDate ? new Date(record.scheduledDate).toLocaleDateString() : 'N/A'}
-                            </span>
-                          </div>
-                          {record.completedDate && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Fecha Completada:</span>
-                              <span className="text-foreground font-medium">
-                                {new Date(record.completedDate).toLocaleDateString()}
-                              </span>
-                            </div>
-                          )}
-                          {record.cost && Number(record.cost) > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Costo:</span>
-                              <span className="text-foreground font-medium">
-                                ${Number(record.cost).toLocaleString()}
-                              </span>
-                            </div>
-                          )}
-                          {record.timeSpent && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Tiempo:</span>
-                              <span className="text-foreground font-medium">
-                                {Math.floor(Number(record.timeSpent) / 60)}h {Number(record.timeSpent) % 60}m
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {record.partsReplaced && (
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <p className="text-muted-foreground text-xs mb-2">Partes Reemplazadas:</p>
-                          <p className="text-foreground text-sm">{record.partsReplaced}</p>
-                        </div>
-                      )}
-                      
-                      {record.notes && (
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <p className="text-muted-foreground text-xs mb-2">Notas:</p>
-                          <p className="text-foreground text-sm">{record.notes}</p>
-                        </div>
-                      )}
+                      <p className="text-sm text-muted-foreground">{record.description}</p>
                     </CardContent>
                   </Card>
                 ))
               ) : (
                 <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-muted/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Wrench className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    No hay registros de mantenimiento
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Este equipo no tiene historial de mantenimientos registrados.
-                  </p>
+                  <Wrench className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">No hay registros de mantenimiento</p>
                 </div>
               )}
             </div>

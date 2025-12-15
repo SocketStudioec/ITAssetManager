@@ -639,58 +639,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/assets/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user.userId;
-      const validatedData = insertAssetSchema.partial().parse(req.body);
-      
-      const asset = await storage.updateAsset(id, validatedData);
-      
-      await storage.logActivity({
-        companyId: asset.companyId,
-        userId,
-        action: "updated",
-        entityType: "asset",
-        entityId: asset.id,
-        entityName: asset.name,
+app.put('/api/assets/:id', isAuthenticated, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    // Validar que el companyId esté presente
+    if (!req.body.companyId) {
+      console.error('ERROR: companyId no está presente en la solicitud');
+      return res.status(400).json({ 
+        message: "companyId es requerido para actualizar el activo" 
       });
-      
-      res.json(asset);
-    } catch (error) {
-      console.error("Error updating asset:", error);
-      res.status(400).json({ message: "Failed to update asset" });
     }
-  });
-
-  app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) => {
-    try {
-      const { id, companyId } = req.params;
-      const userId = req.user.userId;
-      
-      const asset = await storage.getAssetById(id, companyId);
-      if (!asset) {
-        return res.status(404).json({ message: "Asset not found" });
-      }
-      
-      await storage.deleteAsset(id, companyId);
-      
-      await storage.logActivity({
-        companyId,
-        userId,
-        action: "deleted",
-        entityType: "asset",
-        entityId: id,
-        entityName: asset.name,
+    
+    const companyId = req.body.companyId;
+    
+    // Transformar los datos ANTES de validar
+    const dataToValidate = {
+      ...req.body,
+      // Transformar campos con guiones bajos a camelCase para validación
+      serialNumber: req.body.serial_number,
+      monthlyCost: req.body.monthly_cost,
+      annualCost: req.body.annual_cost,
+      assignedTo: req.body.assigned_to,
+      applicationType: req.body.application_type,
+      domainCost: req.body.domain_cost,
+      sslCost: req.body.ssl_cost,
+      hostingCost: req.body.hosting_cost,
+      serverCost: req.body.server_cost,
+      domainExpiry: req.body.domain_expiry,
+      sslExpiry: req.body.ssl_expiry,
+      hostingExpiry: req.body.hosting_expiry,
+      serverExpiry: req.body.server_expiry,
+    };
+    
+    // Crear un schema específico para actualización
+    const updateAssetSchema = insertAssetSchema.partial().extend({
+      companyId: z.string().min(1, "Company ID is required"),
+    });
+    
+    // Validar datos
+    const validatedData = updateAssetSchema.parse(dataToValidate);
+    
+    // Verificar que el activo existe
+    const existingAsset = await storage.getAssetById(id, companyId);
+    if (!existingAsset) {
+      return res.status(404).json({ 
+        message: "Activo no encontrado" 
       });
-      
-      res.json({ message: "Asset deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting asset:", error);
-      res.status(500).json({ message: "Failed to delete asset" });
     }
-  });
+    
+    // Transformar de vuelta a snake_case para la BD
+    const dataForDb = {
+      company_id: validatedData.companyId,
+      name: validatedData.name,
+      type: validatedData.type,
+      description: validatedData.description,
+      serial_number: validatedData.serialNumber,
+      model: validatedData.model,
+      manufacturer: validatedData.manufacturer,
+      purchase_date: validatedData.purchaseDate,
+      warranty_expiry: validatedData.warrantyExpiry,
+      monthly_cost: validatedData.monthlyCost,      
+      annual_cost: validatedData.annualCost,        
+      status: validatedData.status,
+      location: validatedData.location,
+      assigned_to: validatedData.assignedTo,
+      notes: validatedData.notes,
+      application_type: validatedData.applicationType,
+      url: validatedData.url,
+      version: validatedData.version,
+      domain_cost: validatedData.domainCost,        
+      ssl_cost: validatedData.sslCost,              
+      hosting_cost: validatedData.hostingCost,      
+      server_cost: validatedData.serverCost,        
+      domain_expiry: validatedData.domainExpiry,
+      ssl_expiry: validatedData.sslExpiry,
+      hosting_expiry: validatedData.hostingExpiry,
+      server_expiry: validatedData.serverExpiry,
+    };
+    
+    // Actualizar el activo
+    const asset = await storage.updateAsset(id, dataForDb);
+    
+    // Registrar actividad
+    await storage.logActivity({
+      companyId: companyId,
+      userId: userId,
+      action: "updated",
+      entityType: "asset",
+      entityId: asset.id,
+      entityName: asset.name,
+    });
+    
+    
+    res.json(asset);
+  } catch (error) {
+    console.error("Error actualizando activo:", error);
+    
+    if (error instanceof z.ZodError) {
+      console.error("Errores de validación:", error.errors);
+      return res.status(400).json({ 
+        message: "Error de validación en los datos",
+        errors: error.errors
+      });
+    }
+    
+    res.status(400).json({ 
+      message: "Error al actualizar el activo",
+      error: error instanceof Error ? error.message : "Error desconocido"
+    });
+  }
+});
 
+app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) => {
+  try {
+    const { id, companyId } = req.params; 
+    const userId = req.user.userId;
+    
+    const asset = await storage.getAssetById(id, companyId);
+    if (!asset) {
+      return res.status(404).json({ message: "Asset not found" });
+    }
+    
+    await storage.deleteAsset(id, companyId);
+    
+    await storage.logActivity({
+      companyId,  
+      userId,
+      action: "deleted",
+      entityType: "asset",
+      entityId: id,
+      entityName: asset.name,
+    });
+    
+    res.json({ message: "Asset deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting asset:", error);
+    res.status(500).json({ message: "Failed to delete asset" });
+  }
+});
   // Contract routes
   app.get('/api/contracts/:companyId', isAuthenticated, async (req: any, res) => {
     try {
