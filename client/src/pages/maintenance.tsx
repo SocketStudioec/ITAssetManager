@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Table, 
   TableBody, 
@@ -19,13 +29,28 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { Plus, Search, Filter, Edit2, Trash2, Eye, Wrench, Calendar, CheckCircle, Clock } from "lucide-react";
+import EditMaintenanceModal from "@/components/modals/edit-maintenance-modal";
+import AddMaintenanceModal from "@/components/modals/add-maintenance-modal";
+import { Plus, Search, Filter, Edit2, Trash2, Wrench, Calendar, CheckCircle, Clock, AlertTriangle } from "lucide-react";
 
 export default function Maintenance() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMaintenanceForEdit, setSelectedMaintenanceForEdit] = useState<any>(null);
+  const [maintenanceToDelete, setMaintenanceToDelete] = useState<any>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [selectedAssetForMaintenance, setSelectedAssetForMaintenance] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  
+  // Estado para el diálogo de selección de activo
+  const [showAssetSelectionDialog, setShowAssetSelectionDialog] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<string>("");
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -43,14 +68,14 @@ export default function Maintenance() {
   }, [isAuthenticated, isLoading, toast]);
 
   // Check if we're in support mode
-  const { data: supportStatus } = useQuery({
+  const { data: supportStatus } = useQuery<{ supportMode: boolean; company: any }>({
     queryKey: ["/api/admin/support-status"],
     enabled: isAuthenticated,
     retry: false,
     refetchInterval: 10000,
   });
 
-  const { data: userCompanies = [] } = useQuery({
+  const { data: userCompanies = [] } = useQuery<any[]>({
     queryKey: ["/api/companies"],
     enabled: isAuthenticated && !supportStatus?.supportMode,
   });
@@ -62,12 +87,60 @@ export default function Maintenance() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (Array.isArray(companies) && companies.length > 0 && !selectedCompanyId) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
 
-  const { data: maintenanceRecords = [], isLoading: isMaintenanceLoading, error: maintenanceError } = useQuery({
+  // Query para obtener los assets (necesario para el modal)
+  const { data: assetsList = [] } = useQuery({
+    queryKey: ["/api/assets", selectedCompanyId],
+    enabled: !!selectedCompanyId,
+  });
+
+  // Filter physical assets for maintenance
+  const physicalAssets = (assetsList as any[]).filter((asset: any) => asset.type === "physical");
+
+  // Function to handle maintenance scheduling
+  const handleScheduleMaintenance = () => {
+    if (physicalAssets.length === 0) {
+      toast({
+        title: "No hay activos físicos",
+        description: "Primero debes agregar activos físicos para programar mantenimiento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (physicalAssets.length === 1) {
+      // Si solo hay un activo, seleccionarlo automáticamente
+      const asset = physicalAssets[0];
+      setSelectedAssetForMaintenance({
+        id: asset.id,
+        name: asset.name
+      });
+      setShowMaintenanceModal(true);
+    } else {
+      // Si hay múltiples activos, mostrar diálogo de selección
+      setShowAssetSelectionDialog(true);
+    }
+  };
+
+  // Handle asset selection for maintenance
+  const handleAssetSelection = () => {
+    const selectedAsset = physicalAssets.find(asset => asset.id === selectedAssetId);
+    if (selectedAsset) {
+      setSelectedAssetForMaintenance({
+        id: selectedAsset.id,
+        name: selectedAsset.name
+      });
+      setShowAssetSelectionDialog(false);
+      setShowMaintenanceModal(true);
+      setSelectedAssetId(""); 
+    }
+  };
+
+  const { data: maintenanceRecords = [], isLoading: isMaintenanceLoading, error: maintenanceError } = useQuery<any[]>({
     queryKey: ["/api/maintenance", selectedCompanyId],
     enabled: !!selectedCompanyId,
   });
@@ -85,6 +158,62 @@ export default function Maintenance() {
     }
   }, [maintenanceError, toast]);
 
+  // Mutation para eliminar mantenimiento
+  const deleteMaintenanceMutation = useMutation({
+    mutationFn: async ({ maintenanceId, companyId }: { maintenanceId: string; companyId: string }) => {
+      return await apiRequest("DELETE", `/api/maintenance/${maintenanceId}/${companyId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Mantenimiento eliminado",
+        description: "El registro de mantenimiento se ha eliminado exitosamente.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      setShowDeleteDialog(false);
+      setMaintenanceToDelete(null);
+    },
+    onError: (error: any) => {
+      console.error("Error deleting maintenance:", error);
+      
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "No autorizado",
+          description: "Redirigiendo al inicio de sesión...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      const errorMessage = error.response?.data?.message || error.message || "Error al eliminar el mantenimiento.";
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Manejar confirmación de eliminación
+  const handleDeleteConfirm = () => {
+    if (maintenanceToDelete) {
+      deleteMaintenanceMutation.mutate({
+        maintenanceId: maintenanceToDelete.id,
+        companyId: selectedCompanyId,
+      });
+    }
+  };
+
+  // Abrir diálogo de eliminación
+  const openDeleteDialog = (maintenance: any) => {
+    setMaintenanceToDelete(maintenance);
+    setShowDeleteDialog(true);
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -94,44 +223,11 @@ export default function Maintenance() {
   }
 
   // Filter by search term
-  const filteredRecords = maintenanceRecords.filter((record: any) =>
+  const filteredRecords = Array.isArray(maintenanceRecords) ? maintenanceRecords.filter((record: any) =>
     record.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     record.vendor?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.maintenanceType.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <Badge className="bg-accent text-accent-foreground">Completado</Badge>;
-      case "in_progress":
-        return <Badge className="bg-chart-3 text-white">En Progreso</Badge>;
-      case "scheduled":
-        return <Badge className="bg-chart-2 text-white">Programado</Badge>;
-      case "cancelled":
-        return <Badge variant="secondary">Cancelado</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getMaintenanceTypeBadge = (type: string) => {
-    switch (type) {
-      case "preventive":
-        return <Badge className="bg-accent text-accent-foreground">Preventivo</Badge>;
-      case "corrective":
-        return <Badge className="bg-chart-3 text-white">Correctivo</Badge>;
-      case "emergency":
-        return <Badge className="bg-destructive text-destructive-foreground">Emergencia</Badge>;
-      default:
-        return <Badge variant="outline">{type}</Badge>;
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleDateString('es-ES');
-  };
+    record.maintenance_type.toLowerCase().includes(searchTerm.toLowerCase())
+  ) : [];
 
   const scheduledRecords = filteredRecords.filter((r: any) => r.status === "scheduled");
   const inProgressRecords = filteredRecords.filter((r: any) => r.status === "in_progress");
@@ -147,7 +243,8 @@ export default function Maintenance() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header 
           title="Mantenimiento de Equipos" 
-          subtitle="Programación y seguimiento de mantenimientos" 
+          subtitle="Programación y seguimiento de mantenimientos"
+          selectedCompanyId={selectedCompanyId}
         />
         
         <main className="flex-1 overflow-y-auto bg-background">
@@ -160,7 +257,7 @@ export default function Maintenance() {
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Total Registros</p>
                       <p className="text-2xl font-bold text-foreground" data-testid="text-total-maintenance">
-                        {isMaintenanceLoading ? "..." : maintenanceRecords.length}
+                        {isMaintenanceLoading ? "..." : Array.isArray(maintenanceRecords) ? maintenanceRecords.length : 0}
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center">
@@ -208,7 +305,7 @@ export default function Maintenance() {
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Costo Total</p>
                       <p className="text-2xl font-bold text-foreground" data-testid="text-maintenance-cost">
-                        ${isMaintenanceLoading ? "..." : maintenanceRecords.reduce((sum: number, r: any) => sum + Number(r.cost || 0), 0).toLocaleString()}
+                        ${isMaintenanceLoading ? "..." : Array.isArray(maintenanceRecords) ? maintenanceRecords.reduce((sum: number, r: any) => sum + Number(r.cost || 0), 0).toLocaleString() : "0"}
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center">
@@ -239,7 +336,10 @@ export default function Maintenance() {
                       <Filter className="w-4 h-4 mr-2" />
                       Filtros
                     </Button>
-                    <Button data-testid="button-add-maintenance">
+                    <Button 
+                      onClick={handleScheduleMaintenance}
+                      data-testid="button-add-maintenance"
+                    >
                       <Plus className="w-4 h-4 mr-2" />
                       Programar Mantenimiento
                     </Button>
@@ -257,19 +357,39 @@ export default function Maintenance() {
                   </TabsList>
                   
                   <TabsContent value="all" className="mt-4">
-                    <MaintenanceTable records={filteredRecords} loading={isMaintenanceLoading} />
+                    <MaintenanceTable 
+                      records={filteredRecords} 
+                      loading={isMaintenanceLoading}
+                      onEdit={setSelectedMaintenanceForEdit}
+                      onDelete={openDeleteDialog}
+                    />
                   </TabsContent>
                   
                   <TabsContent value="scheduled" className="mt-4">
-                    <MaintenanceTable records={scheduledRecords} loading={isMaintenanceLoading} />
+                    <MaintenanceTable 
+                      records={scheduledRecords} 
+                      loading={isMaintenanceLoading}
+                      onEdit={setSelectedMaintenanceForEdit}
+                      onDelete={openDeleteDialog}
+                    />
                   </TabsContent>
                   
                   <TabsContent value="in_progress" className="mt-4">
-                    <MaintenanceTable records={inProgressRecords} loading={isMaintenanceLoading} />
+                    <MaintenanceTable 
+                      records={inProgressRecords} 
+                      loading={isMaintenanceLoading}
+                      onEdit={setSelectedMaintenanceForEdit}
+                      onDelete={openDeleteDialog}
+                    />
                   </TabsContent>
                   
                   <TabsContent value="completed" className="mt-4">
-                    <MaintenanceTable records={completedRecords} loading={isMaintenanceLoading} />
+                    <MaintenanceTable 
+                      records={completedRecords} 
+                      loading={isMaintenanceLoading}
+                      onEdit={setSelectedMaintenanceForEdit}
+                      onDelete={openDeleteDialog}
+                    />
                   </TabsContent>
                 </Tabs>
               </CardContent>
@@ -277,11 +397,123 @@ export default function Maintenance() {
           </div>
         </main>
       </div>
+
+      {/* Modal para editar mantenimiento */}
+      {selectedMaintenanceForEdit && (
+        <EditMaintenanceModal
+          open={!!selectedMaintenanceForEdit}
+          onOpenChange={(open) => !open && setSelectedMaintenanceForEdit(null)}
+          maintenance={selectedMaintenanceForEdit}
+          companyId={selectedCompanyId}
+        />
+      )}
+
+      {/*Diálogo de selección de activo */}
+      <Dialog open={showAssetSelectionDialog} onOpenChange={setShowAssetSelectionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Seleccionar Activo</DialogTitle>
+            <DialogDescription>
+              Selecciona el activo físico para el cual desea programar el mantenimiento.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="asset-select">Activo</Label>
+              <select
+                id="asset-select"
+                className="w-full mt-1 px-3 py-2 border border-input rounded-md bg-background text-foreground"
+                value={selectedAssetId}
+                onChange={(e) => setSelectedAssetId(e.target.value)}
+              >
+                <option value="">Seleccionar activo...</option>
+                {physicalAssets.map((asset: any) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name} - {asset.model || "Sin modelo"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowAssetSelectionDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAssetSelection}
+              disabled={!selectedAssetId}
+            >
+              Programar Mantenimiento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/*Modal para agregar mantenimiento */}
+      {selectedAssetForMaintenance && (
+        <AddMaintenanceModal
+          open={showMaintenanceModal}
+          onOpenChange={(open) => {
+            setShowMaintenanceModal(open);
+            if (!open) {
+              setSelectedAssetForMaintenance(null);
+            }
+          }}
+          assetId={selectedAssetForMaintenance.id}
+          assetName={selectedAssetForMaintenance.name}
+          companyId={selectedCompanyId}
+        />
+      )}
+
+      {/* Diálogo de confirmación para eliminar */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Confirmar Eliminación
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar este registro de mantenimiento?
+              <br />
+              <strong>{maintenanceToDelete?.description}</strong>
+              <br />
+              Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleteMaintenanceMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteMaintenanceMutation.isPending}
+            >
+              {deleteMaintenanceMutation.isPending ? "Eliminando..." : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function MaintenanceTable({ records, loading }: { records: any[], loading: boolean }) {
+interface MaintenanceTableProps {
+  records: any[];
+  loading: boolean;
+  onEdit: (maintenance: any) => void;
+  onDelete: (maintenance: any) => void;
+}
+
+function MaintenanceTable({ records, loading, onEdit, onDelete }: MaintenanceTableProps) {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
@@ -305,6 +537,8 @@ function MaintenanceTable({ records, loading }: { records: any[], loading: boole
         return <Badge className="bg-chart-3 text-white">Correctivo</Badge>;
       case "emergency":
         return <Badge className="bg-destructive text-destructive-foreground">Emergencia</Badge>;
+      case "upgrade":
+        return <Badge className="bg-chart-2 text-white">Actualización</Badge>;
       default:
         return <Badge variant="outline">{type}</Badge>;
     }
@@ -348,24 +582,32 @@ function MaintenanceTable({ records, loading }: { records: any[], loading: boole
                   {record.description}
                 </TableCell>
                 <TableCell>
-                  {getMaintenanceTypeBadge(record.maintenanceType)}
+                  {getMaintenanceTypeBadge(record.maintenance_type)}
                 </TableCell>
                 <TableCell>{record.vendor || "N/A"}</TableCell>
-                <TableCell>{formatDate(record.scheduledDate)}</TableCell>
-                <TableCell>{formatDate(record.completedDate)}</TableCell>
+                <TableCell>{formatDate(record.scheduled_date)}</TableCell>
+                <TableCell>{formatDate(record.completed_date)}</TableCell>
                 <TableCell>${Number(record.cost || 0).toLocaleString()}</TableCell>
                 <TableCell>
                   {getStatusBadge(record.status)}
                 </TableCell>
                 <TableCell>
                   <div className="flex space-x-2">
-                    <Button variant="ghost" size="sm" data-testid={`button-view-${record.id}`}>
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" data-testid={`button-edit-${record.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => onEdit(record)}
+                      data-testid={`button-edit-${record.id}`}
+                    >
                       <Edit2 className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" data-testid={`button-delete-${record.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-destructive hover:text-destructive" 
+                      onClick={() => onDelete(record)}
+                      data-testid={`button-delete-${record.id}`}
+                    >
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -384,10 +626,6 @@ function MaintenanceTable({ records, loading }: { records: any[], loading: boole
                 <p className="text-muted-foreground mb-6">
                   No hay registros de mantenimiento para mostrar.
                 </p>
-                <Button data-testid="button-add-first-maintenance">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Programar Primer Mantenimiento
-                </Button>
               </TableCell>
             </TableRow>
           )}

@@ -134,25 +134,25 @@ export default function Reports() {
     {
       category: "Equipos Físicos",
       count: assets.filter((a: any) => a.type === "physical").length,
-      cost: assets.filter((a: any) => a.type === "physical").reduce((sum: number, a: any) => sum + Number(a.monthlyCost || 0), 0),
+      cost: assets.filter((a: any) => a.type === "physical").reduce((sum: number, a: any) => sum + Number(a.monthly_cost || 0), 0),
       status: "Activo"
     },
     {
       category: "Aplicaciones",
       count: assets.filter((a: any) => a.type === "application").length,
-      cost: assets.filter((a: any) => a.type === "application").reduce((sum: number, a: any) => sum + Number(a.monthlyCost || 0), 0),
+      cost: assets.filter((a: any) => a.type === "application").reduce((sum: number, a: any) => sum + Number(a.monthly_cost || 0), 0),
       status: "Activo"
     },
     {
       category: "Licencias",
       count: licenses.length,
-      cost: licenses.reduce((sum: number, l: any) => sum + Number(l.monthlyCost || 0), 0),
+      cost: licenses.reduce((sum: number, l: any) => sum + Number(l.monthly_cost || 0), 0),
       status: "Activo"
     },
     {
       category: "Contratos",
       count: contracts.length,
-      cost: contracts.reduce((sum: number, c: any) => sum + Number(c.monthlyCost || 0), 0),
+      cost: contracts.reduce((sum: number, c: any) => sum + Number(c.monthly_cost || 0), 0),
       status: "Activo"
     }
   ];

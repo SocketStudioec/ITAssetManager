@@ -132,6 +132,7 @@ import {
   loginSchema,
 } from "@shared/schema";
 import { z } from "zod";
+import { pool } from "./db";
 
 /**
  * FUNCIÓN PRINCIPAL DE REGISTRO DE RUTAS
@@ -871,7 +872,7 @@ app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) 
     }
   });
 
-  app.post('/api/maintenance', isAuthenticated, async (req: any, res) => {
+  app.post('/api/maintenance', isAuthenticated, async (req: any, res) => {  
     try {
       const userId = req.user.userId;
       const validatedData = insertMaintenanceRecordSchema.parse(req.body);
@@ -892,6 +893,103 @@ app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) 
       console.error("Error creating maintenance record:", error);
       res.status(400).json({ message: "Failed to create maintenance record" });
     }
+  });
+
+  app.put('/api/maintenance/:id/:companyId', isAuthenticated, async (req: any, res) => {  
+    try {
+      const { id, companyId } = req.params;
+      const userId = req.user.userId;
+      
+      // Verificar que el registro existe
+      const existingRecord = await storage.getMaintenanceRecordById(id, companyId);
+      if (!existingRecord) {
+        return res.status(404).json({ message: "Registro de mantenimiento no encontrado" });
+      }
+          
+      // Mapear datos del frontend al formato del storage
+      const updateData: any = {};
+      
+      // Campos directos
+      if (req.body.title !== undefined) updateData.title = req.body.title;
+      if (req.body.description !== undefined) updateData.description = req.body.description;
+      if (req.body.status !== undefined) updateData.status = req.body.status;
+      if (req.body.priority !== undefined) updateData.priority = req.body.priority;
+      if (req.body.vendor !== undefined) updateData.vendor = req.body.vendor;
+      if (req.body.technician !== undefined) updateData.technician = req.body.technician;
+      if (req.body.cost !== undefined) updateData.cost = req.body.cost;
+      if (req.body.notes !== undefined) updateData.notes = req.body.notes;
+      
+      // Campos camelCase del frontend
+      if (req.body.maintenanceType !== undefined) updateData.maintenanceType = req.body.maintenanceType;
+      if (req.body.timeSpent !== undefined) updateData.timeSpent = req.body.timeSpent;
+      if (req.body.scheduledDate !== undefined) updateData.scheduledDate = req.body.scheduledDate;
+      if (req.body.completedDate !== undefined) updateData.completedDate = req.body.completedDate;
+      if (req.body.nextMaintenanceDate !== undefined) updateData.nextMaintenanceDate = req.body.nextMaintenanceDate;
+      if (req.body.partsReplaced !== undefined) updateData.partsReplaced = req.body.partsReplaced;
+          
+      // Actualizar en la base de datos
+      const updatedRecord = await storage.updateMaintenanceRecord(id, updateData);
+      
+      // Registrar actividad
+      await storage.logActivity({
+        companyId,
+        userId,
+        action: "updated",
+        entityType: "maintenance_record", 
+        entityId: id,
+        entityName: `Maintenance: ${updatedRecord.title || updatedRecord.description}`,
+      });
+        res.json(updatedRecord);
+      
+    } catch (error) {    
+      res.status(500).json({ 
+        message: "Failed to update maintenance record",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.delete('/api/maintenance/:id/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id, companyId } = req.params;
+      const userId = req.user.userId;
+      
+      // Verificar existencia y eliminar en una sola operación
+      const existingRecord = await storage.getMaintenanceRecordById(id, companyId);
+      
+      if (!existingRecord) {
+        return res.status(404).json({ message: "Registro de mantenimiento no encontrado" });
+      }
+
+      // Eliminar el registro
+      await storage.deleteMaintenanceRecord(id, companyId);
+      
+      // Registrar actividad de forma asíncrona (fire-and-forget o con Promise.allSettled)
+      storage.logActivity({
+        companyId,
+        userId,
+        action: "deleted",
+        entityType: "maintenance_record",
+        entityId: id,
+        entityName: `Maintenance: ${existingRecord.description}`,
+      }).catch(err => console.error('Error logging activity:', err));
+      
+      return res.json({ 
+        message: "Registro de mantenimiento eliminado exitosamente",
+        deleted: true,
+        id
+      });
+      
+    } catch (error) {
+      console.error('Error deleting maintenance record:', error);
+      return res.status(500).json({ 
+        message: "Error al eliminar el registro de mantenimiento",
+        error: error instanceof Error ? error.message : "Error desconocido",
+      });
+    }
+  });
+  app.all('/api/maintenance/*', (req: any, res) => {
+    res.status(404).json({ message: "Ruta de mantenimiento no encontrada" });
   });
 
   // Admin routes (Super Admin only)

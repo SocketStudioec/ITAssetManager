@@ -10,10 +10,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import CostPieChart from "@/components/charts/cost-pie-chart";
 import { getPlanDisplayName, getPlanLimits, getUsagePercentage } from "@/lib/planUtils";
 import TrendLineChart from "@/components/charts/trend-line-chart";
 import AddAssetModal from "@/components/modals/add-asset-modal";
+import AddMaintenanceModal from "@/components/modals/add-maintenance-modal";
 import { 
   DollarSign, 
   Calendar, 
@@ -33,6 +44,15 @@ export default function Dashboard() {
   const { isAuthenticated, isLoading } = useAuth();
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [selectedAssetForMaintenance, setSelectedAssetForMaintenance] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  
+  // Estado para el diálogo de selección de activo
+  const [showAssetSelectionDialog, setShowAssetSelectionDialog] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<string>("");
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -50,14 +70,14 @@ export default function Dashboard() {
   }, [isAuthenticated, isLoading, toast]);
 
   // Check if we're in support mode
-  const { data: supportStatus } = useQuery({
+  const { data: supportStatus } = useQuery<{ supportMode: boolean; company: any }>({
     queryKey: ["/api/admin/support-status"],
     enabled: isAuthenticated,
     retry: false,
     refetchInterval: 10000, // Check every 10 seconds
   });
 
-  const { data: userCompanies = [] } = useQuery({
+  const { data: userCompanies = [] } = useQuery<any[]>({
     queryKey: ["/api/companies"],
     enabled: isAuthenticated && !supportStatus?.supportMode,
   });
@@ -67,12 +87,12 @@ export default function Dashboard() {
     ? [{ company: supportStatus.company }] 
     : userCompanies;
 
-  const selectedCompany = companies.find((uc: any) => uc.company.id === selectedCompanyId);
+  const selectedCompany = Array.isArray(companies) ? companies.find((uc: any) => uc.company.id === selectedCompanyId) : undefined;
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if ((companies as any[]).length > 0 && !selectedCompanyId) {
-      setSelectedCompanyId((companies as any[])[0].company.id);
+    if (Array.isArray(companies) && companies.length > 0 && !selectedCompanyId) {
+      setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);
 
@@ -86,11 +106,53 @@ export default function Dashboard() {
     enabled: !!selectedCompanyId,
   });
 
-  // Get assets for expiry alerts
+  // Get assets for expiry alerts AND for maintenance selection
   const { data: assetsList = [] } = useQuery({
     queryKey: ["/api/assets", selectedCompanyId],
     enabled: !!selectedCompanyId,
   });
+
+  // Filter physical assets for maintenance
+  const physicalAssets = (assetsList as any[]).filter((asset: any) => asset.type === "physical");
+
+  // Function to handle maintenance scheduling
+  const handleScheduleMaintenance = () => {
+    if (physicalAssets.length === 0) {
+      toast({
+        title: "No hay activos físicos",
+        description: "Primero debes agregar activos físicos para programar mantenimiento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (physicalAssets.length === 1) {
+      // Si solo hay un activo, seleccionarlo automáticamente
+      const asset = physicalAssets[0];
+      setSelectedAssetForMaintenance({
+        id: asset.id,
+        name: asset.name
+      });
+      setShowMaintenanceModal(true);
+    } else {
+      // Si hay múltiples activos, mostrar diálogo de selección
+      setShowAssetSelectionDialog(true);
+    }
+  };
+
+  // Handle asset selection for maintenance
+  const handleAssetSelection = () => {
+    const selectedAsset = physicalAssets.find(asset => asset.id === selectedAssetId);
+    if (selectedAsset) {
+      setSelectedAssetForMaintenance({
+        id: selectedAsset.id,
+        name: selectedAsset.name
+      });
+      setShowAssetSelectionDialog(false);
+      setShowMaintenanceModal(true);
+      setSelectedAssetId(""); // Reset selection
+    }
+  };
 
   // Calculate expiring services
   const getExpiringServices = () => {
@@ -452,6 +514,7 @@ export default function Dashboard() {
                   <Button
                     variant="outline"
                     className="w-full justify-between h-auto p-3"
+                    onClick={handleScheduleMaintenance}
                     data-testid="button-schedule-maintenance"
                   >
                     <div className="flex items-center">
@@ -517,11 +580,72 @@ export default function Dashboard() {
         </main>
       </div>
 
+      {/* Modal para agregar activo */}
       <AddAssetModal
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
       />
+      
+      {/* Diálogo de selección de activo para mantenimiento */}
+      <Dialog open={showAssetSelectionDialog} onOpenChange={setShowAssetSelectionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Seleccionar Activo</DialogTitle>
+            <DialogDescription>
+              Selecciona el activo físico para el cual deseas programar el mantenimiento.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="asset-select">Activo</Label>
+              <select
+                id="asset-select"
+                className="w-full mt-1 px-3 py-2 border border-input rounded-md bg-background text-foreground"
+                value={selectedAssetId}
+                onChange={(e) => setSelectedAssetId(e.target.value)}
+              >
+                <option value="">Seleccionar activo...</option>
+                {physicalAssets.map((asset: any) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name} - {asset.model || "Sin modelo"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowAssetSelectionDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAssetSelection}
+              disabled={!selectedAssetId}
+            >
+              Programar Mantenimiento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Modal para agregar mantenimiento */}
+      {selectedAssetForMaintenance && (
+        <AddMaintenanceModal
+          open={showMaintenanceModal}
+          onOpenChange={(open) => {
+            setShowMaintenanceModal(open);
+            if (!open) {
+              setSelectedAssetForMaintenance(null);
+            }
+          }}
+          assetId={selectedAssetForMaintenance.id}
+          assetName={selectedAssetForMaintenance.name}
+          companyId={selectedCompanyId}
+        />
+      )}
     </div>
   );
 }

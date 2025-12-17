@@ -19,9 +19,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import AddAssetModal from "@/components/modals/add-asset-modal";
 import EditAssetModal from "@/components/modals/edit-asset-modal";
+import AddMaintenanceModal from "@/components/modals/add-maintenance-modal";
+import MaintenanceHistoryModal from "@/components/modals/maintenance-history-modal";
 import { Plus, Search, Filter, Edit2, Trash2, Eye, Wrench, Calendar, AlertTriangle } from "lucide-react";
 
 export default function PhysicalAssets() {
@@ -32,18 +33,20 @@ export default function PhysicalAssets() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedAssetForMaintenance, setSelectedAssetForMaintenance] = useState<string | null>(null);
+  const [selectedAssetForMaintenance, setSelectedAssetForMaintenance] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [showMaintenanceHistoryModal, setShowMaintenanceHistoryModal] = useState(false);
+  const [maintenanceHistoryAsset, setMaintenanceHistoryAsset] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   
   // Estados para edición y eliminación
   const [selectedAssetForEdit, setSelectedAssetForEdit] = useState<any>(null);
   const [assetToDelete, setAssetToDelete] = useState<any>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-
-  // Get maintenance records for selected asset
-  const { data: maintenanceRecords = [], isLoading: isMaintenanceLoading } = useQuery<any[]>({
-    queryKey: ["/api/maintenance/asset", selectedAssetForMaintenance, selectedCompanyId],
-    enabled: !!selectedAssetForMaintenance && !!selectedCompanyId,
-  });
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -158,6 +161,25 @@ export default function PhysicalAssets() {
   const openDeleteDialog = (asset: any) => {
     setAssetToDelete(asset);
     setShowDeleteDialog(true);
+  };
+
+  // Abrir modal de historial de mantenimiento
+  const openMaintenanceHistory = (asset: { id: string; name: string }) => {
+    setMaintenanceHistoryAsset(asset);
+    setShowMaintenanceHistoryModal(true);
+  };
+
+  // Cerrar modal de historial de mantenimiento
+  const closeMaintenanceHistory = () => {
+    setShowMaintenanceHistoryModal(false);
+    setMaintenanceHistoryAsset(null);
+  };
+
+  // Obtener el último mantenimiento de un activo
+  const getLastMaintenance = (assetId: string) => {
+    // Esta función podría mejorar cargando todos los mantenimientos al inicio
+    // Por ahora solo mostramos un placeholder
+    return "Hace 2 meses";
   };
 
   if (isLoading || !isAuthenticated) {
@@ -312,8 +334,7 @@ export default function PhysicalAssets() {
                             Último Mantenimiento
                           </span>
                           <span className="text-foreground font-medium">
-                            {/* Esta información vendrá del historial de mantenimientos */}
-                            Hace 2 meses
+                            {getLastMaintenance(asset.id)}
                           </span>
                         </div>
                         
@@ -333,8 +354,18 @@ export default function PhysicalAssets() {
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              onClick={() => setSelectedAssetForMaintenance(asset.id)}
-                              data-testid={`button-maintenance-${asset.id}`}
+                              onClick={() => setSelectedAssetForMaintenance({ id: asset.id, name: asset.name })}
+                              data-testid={`button-add-maintenance-${asset.id}`}
+                              title="Programar mantenimiento"
+                            >
+                              <Wrench className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => openMaintenanceHistory({ id: asset.id, name: asset.name })}
+                              data-testid={`button-maintenance-history-${asset.id}`}
+                              title="Ver historial de mantenimientos"
                             >
                               <Calendar className="w-4 h-4" />
                             </Button>
@@ -400,6 +431,30 @@ export default function PhysicalAssets() {
         />
       )}
 
+      {/* Modal para agregar mantenimiento */}
+      {selectedAssetForMaintenance && (
+        <AddMaintenanceModal
+          open={!!selectedAssetForMaintenance}
+          onOpenChange={(open) => {
+            if (!open) setSelectedAssetForMaintenance(null);
+          }}
+          assetId={selectedAssetForMaintenance.id}
+          assetName={selectedAssetForMaintenance.name}
+          companyId={selectedCompanyId}
+        />
+      )}
+
+      {/* Modal de historial de mantenimientos */}
+      {maintenanceHistoryAsset && (
+        <MaintenanceHistoryModal
+          open={showMaintenanceHistoryModal}
+          onOpenChange={closeMaintenanceHistory}
+          assetId={maintenanceHistoryAsset.id}
+          assetName={maintenanceHistoryAsset.name}
+          companyId={selectedCompanyId}
+        />
+      )}
+
       {/* Diálogo de confirmación para eliminar */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
@@ -429,56 +484,6 @@ export default function PhysicalAssets() {
               {deleteAssetMutation.isPending ? "Eliminando..." : "Eliminar"}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Maintenance History Modal */}
-      <Dialog 
-        open={!!selectedAssetForMaintenance} 
-        onOpenChange={() => setSelectedAssetForMaintenance(null)}
-      >
-        <DialogContent className="max-w-4xl max-h-[90vh]">
-          <DialogHeader>
-            <DialogTitle>Historial de Mantenimientos</DialogTitle>
-          </DialogHeader>
-          
-          <ScrollArea className="h-[70vh] pr-4">
-            <div className="space-y-4">
-              {isMaintenanceLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <Card key={i} className="border-border">
-                    <CardContent className="p-4">
-                      <Skeleton className="h-4 w-1/3 mb-2" />
-                      <Skeleton className="h-3 w-full mb-2" />
-                      <Skeleton className="h-3 w-2/3" />
-                    </CardContent>
-                  </Card>
-                ))
-              ) : Array.isArray(maintenanceRecords) && maintenanceRecords.length > 0 ? (
-                maintenanceRecords.map((record: any) => (
-                  <Card key={record.id} className="border-border">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">{record.title || record.description}</h4>
-                        <Badge>{record.maintenanceType}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{record.description}</p>
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <div className="text-center py-8">
-                  <Wrench className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No hay registros de mantenimiento</p>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-          
-          <div className="flex justify-between pt-4 border-t">
-            <Button variant="outline">Agregar Mantenimiento</Button>
-            <Button onClick={() => setSelectedAssetForMaintenance(null)}>Cerrar</Button>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

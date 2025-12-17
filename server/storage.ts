@@ -138,6 +138,8 @@ export interface IStorage {
   getMaintenanceRecordsByAsset(assetId: string, companyId: string): Promise<MaintenanceRecord[]>;
   createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord>;
   updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord>;
+  getMaintenanceRecordById(id: string, companyId: string): Promise<MaintenanceRecord | undefined>;
+  deleteMaintenanceRecord(id: string, companyId: string): Promise<void>;
   
   // Dashboard analytics
   getCompanyCostSummary(companyId: string): Promise<{
@@ -685,29 +687,47 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
     return result.rows[0] as MaintenanceRecord;
   }
 
-  async updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord> {
-    const fields: string[] = [];
-    const values: any[] = [];
-    let paramIndex = 1;
+async updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord> {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let paramIndex = 1;
 
-    Object.entries(record).forEach(([key, value]) => {
-      if (value !== undefined) {
-        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-        fields.push(`${snakeKey} = $${paramIndex}`);
-        values.push(value);
-        paramIndex++;
-      }
-    });
+  Object.entries(record).forEach(([key, value]) => {
+    if (value !== undefined) {
+      const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+      fields.push(`${snakeKey} = $${paramIndex}`);
+      values.push(value);
+      paramIndex++;
+    }
+  });
 
-    fields.push(`updated_at = NOW()`);
-    values.push(id);
+  fields.push(`updated_at = NOW()`);
+  values.push(id);
 
+  const query = `UPDATE maintenance_records SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+  const result = await pool.query(query, values);
+  
+  return result.rows[0] as MaintenanceRecord;
+}
+
+  async getMaintenanceRecordById(id: string, companyId: string): Promise<MaintenanceRecord | undefined> {
     const result = await pool.query(
-      `UPDATE maintenance_records SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-      values
-    );
-    return result.rows[0] as MaintenanceRecord;
+    'SELECT * FROM maintenance_records WHERE id = $1 AND company_id = $2',
+    [id, companyId]
+  );
+  return result.rows[0] as MaintenanceRecord | undefined;
   }
+
+async deleteMaintenanceRecord(id: string, companyId: string): Promise<void> {
+  const result = await pool.query(
+    'DELETE FROM maintenance_records WHERE id = $1 AND company_id = $2',
+    [id, companyId]
+  );
+    
+  if (result.rowCount === 0) {
+    throw new Error("No se pudo eliminar el registro - no existe o no pertenece a la empresa");
+  }
+}
 
   // ==========================================================================
   // DASHBOARD ANALYTICS (REPORTES Y KPIS)
