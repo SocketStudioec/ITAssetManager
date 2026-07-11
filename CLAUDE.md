@@ -19,13 +19,32 @@ mantenimientos. Corre en producción en **https://techassets.socket-studio.com**
 - **Base de datos**: PostgreSQL. El esquema fuente de verdad es
   [schema.sql](schema.sql) (las tablas usan snake_case).
 
+## Arquitectura de información (navegación)
+
+El sidebar agrupa por módulo padre (ver ANALISIS-UX.md):
+- **Dashboard**
+- **Activos IT** (grupo colapsable): Equipos físicos (`/assets`), Licencias y
+  suscripciones (`/subscriptions`), Contratos (`/contracts`), Mantenimientos
+  (`/maintenance`)
+- **Reportes** (`/reports`)
+- **Configuración** (`/settings`)
+- **Administración** (`/admin`, solo super_admin)
+
+`/subscriptions` es la FUSIÓN de aplicaciones (assets tipo `application`) +
+licencias (tabla `licenses`) en una sola vista. Las rutas viejas
+`/applications` y `/licenses` siguen montando el mismo componente `Subscriptions`
+(no romper). Futuro módulo padre planeado: Datos personales (LOPDP).
+
 ## Estructura del repositorio
 
 ```
 client/src/           Frontend React
-  pages/              Una página por módulo: dashboard, assets, contracts,
-                      licenses, maintenance, reports, settings, admin, landing
+  pages/              dashboard, physical-assets (/assets), subscriptions
+                      (fusión apps+licencias), contracts, maintenance, reports,
+                      settings, admin, landing, login, register
   components/         layout/ (header, sidebar), ui/ (shadcn), modales de CRUD
+                      (add-physical-asset-modal = wizard 3 pasos, add-asset-modal,
+                      edit-asset-modal)
   lib/                queryClient de TanStack Query, utilidades
 server/
   index.ts            Entry point. Arranque, middleware de logging, manejador
@@ -55,8 +74,19 @@ DESPLIEGUE-VPS.md     Runbook detallado de despliegue
 - **Planes**: `pyme` (10 usuarios / 500 activos) y `professional`
   (50 usuarios / 2000 activos). Límites en la tabla `companies`.
 - **Convención de nombres**: PostgreSQL usa snake_case, TypeScript camelCase.
-  storage.ts tiene funciones `mapXFromDb()` que convierten. Si agregas
-  columnas, agrega el mapeo o el campo llegará `undefined` al frontend.
+  storage.ts tiene un mapeador genérico `mapRowToCamel()`/`mapRowsToCamel()`
+  que TODAS las lecturas deben usar (assets, contracts, licenses, maintenance),
+  más `mapUserFromDb()` para usuarios. Si un SELECT no pasa por el mapeador, los
+  campos snake_case llegan como `undefined` al frontend (bug histórico de costos
+  y fechas vacíos).
+- **Contratos ↔ activos**: tabla N:M `contract_assets`. `getContractsByCompany`
+  devuelve `linkedAssets: [{id,name,type}]`. `setContractAssets(contractId,
+  assetIds, companyId)` reemplaza los vínculos validando que los activos sean de
+  la empresa. Las migraciones que creen tablas nuevas DEBEN incluir
+  `GRANT ... TO techassets_user` (la app no conecta como el dueño `postgres`).
+- **Licencias**: columna `billing_cycle` (`monthly`|`annual`|`one_time`).
+  `createContract`/`createLicense` ponen defaults explícitos para columnas
+  NOT NULL (`status`, `auto_renewal`) porque el form puede no enviarlas.
 - **Auditoría**: las operaciones de escritura registran en `activity_log` vía
   `storage.logActivity()` — requiere `companyId` obligatorio.
 
