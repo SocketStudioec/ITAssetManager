@@ -13,6 +13,7 @@ import PhysicalAssets from "@/pages/physical-assets";
 import Subscriptions from "@/pages/subscriptions";
 import Contracts from "@/pages/contracts";
 import Maintenance from "@/pages/maintenance";
+import Expirations from "@/pages/expirations";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import AdminPanel from "@/pages/admin";
@@ -41,6 +42,7 @@ function Router() {
           <Route path="/licenses" component={Subscriptions} />
           <Route path="/contracts" component={Contracts} />
           <Route path="/maintenance" component={Maintenance} />
+          <Route path="/expirations" component={Expirations} />
           <Route path="/reports" component={Reports} />
           <Route path="/settings" component={Settings} />
           <Route path="/admin" component={AdminPanel} />

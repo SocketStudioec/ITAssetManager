@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { Badge } from "@/components/ui/badge";
 import {
   Server,
   BarChart3,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   Crown,
   Boxes,
+  BellRing,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -64,6 +66,14 @@ export default function Sidebar({ selectedCompanyId, onCompanyChange, showAdminP
     queryKey: ["/api/companies"],
     enabled: !(supportStatus as any)?.supportMode,
   });
+
+  // Conteo de vencimientos para el badge del menú
+  const { data: unreadData } = useQuery<any>({
+    queryKey: ["/api/notifications/unread-count", selectedCompanyId],
+    enabled: !!selectedCompanyId,
+    refetchInterval: 5 * 60 * 1000,
+  });
+  const expirationCount = unreadData?.count || 0;
 
   // Use support company or user companies
   const companies: any[] = (supportStatus as any)?.supportMode
@@ -128,6 +138,23 @@ export default function Sidebar({ selectedCompanyId, onCompanyChange, showAdminP
           >
             <BarChart3 className="w-5 h-5 mr-3" />
             Dashboard
+          </Button>
+        </Link>
+
+        {/* Vencimientos (con badge de conteo) */}
+        <Link href="/expirations">
+          <Button
+            variant={location === "/expirations" ? "default" : "ghost"}
+            className={navButtonClass(location === "/expirations")}
+            data-testid="nav-expirations"
+          >
+            <BellRing className="w-5 h-5 mr-3" />
+            <span className="flex-1 text-left">Vencimientos</span>
+            {expirationCount > 0 && (
+              <Badge className="ml-auto bg-destructive text-destructive-foreground h-5 min-w-[1.25rem] px-1 text-xs">
+                {expirationCount > 9 ? "9+" : expirationCount}
+              </Badge>
+            )}
           </Button>
         </Link>
 

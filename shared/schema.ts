@@ -118,6 +118,41 @@ export interface ContractLinkedAsset {
 /** Ciclo de facturación de una licencia/suscripción */
 export type BillingCycle = "monthly" | "annual" | "one_time";
 
+/** Severidad de una alerta de vencimiento */
+export type ExpirationSeverity = "expired" | "critical" | "warning";
+
+/** Origen de un vencimiento (para navegar al módulo correcto) */
+export type ExpirationSource =
+  | "license"
+  | "contract"
+  | "contract_renewal"
+  | "warranty"
+  | "domain"
+  | "ssl"
+  | "hosting"
+  | "server";
+
+/**
+ * Item de vencimiento calculado en tiempo real (no persistido).
+ * `key` es determinística e incluye la fecha, para poder descartarla.
+ */
+export interface ExpirationItem {
+  key: string;
+  source: ExpirationSource;
+  /** Etiqueta legible del tipo, p.ej. "Licencia", "Garantía", "Dominio" */
+  kindLabel: string;
+  entityId: string;
+  entityName: string;
+  /** Fecha de vencimiento (ISO) */
+  date: string;
+  /** Días restantes; negativo si ya venció */
+  daysLeft: number;
+  severity: ExpirationSeverity;
+  /** Costo mensual asociado si aplica (para dimensionar el impacto) */
+  monthlyCost?: number;
+  dismissed: boolean;
+}
+
 export interface License {
   id: string;
   companyId: string;

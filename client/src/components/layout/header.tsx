@@ -1,36 +1,14 @@
 /**
  * COMPONENTE HEADER PRINCIPAL
- * 
- * Header global de la aplicación que se muestra en todas las páginas.
- * Integra navegación, notificaciones, perfil de usuario y modo soporte.
- * 
- * FUNCIONALIDADES:
- * - Título dinámico según la página actual
- * - Sistema de notificaciones en tiempo real
- * - Dropdown de perfil de usuario con logout
- * - Indicador visual de modo soporte para super admins
- * - Badge de notificaciones no leídas
- * - Avatar personalizado con fallback a iniciales
- * 
- * NOTIFICACIONES:
- * - Obtiene notificaciones de la empresa seleccionada
- * - Muestra contador de no leídas con badge rojo
- * - Formateo inteligente de fechas (relativo vs. absoluto)  
- * - Marca como leídas al hacer click
- * - Scroll area para manejar múltiples notificaciones
- * 
- * MODO SOPORTE:
- * - Detecta automáticamente si el super admin está en modo soporte
- * - Muestra banner naranja distintivo
- * - Información de la empresa que se está soportando
- * - Botón para salir del modo soporte
- * 
- * RESPONSIVE:
- * - Adaptado para desktop y mobile
- * - Iconos claros y reconocibles
- * - Colores consistentes con el tema de la app
- * 
- * USADO EN: Todas las páginas principales de la aplicación
+ *
+ * Header global con título de página, campana de vencimientos y menú de usuario.
+ *
+ * CAMPANA DE VENCIMIENTOS:
+ * - Consume /api/notifications/:companyId (vencimientos calculados en tiempo real)
+ * - Badge con el conteo de alertas activas (no descartadas)
+ * - Popover con las próximas alertas; permite descartar y navegar a la página
+ * - Si no se pasa selectedCompanyId, usa la primera empresa del usuario
+ *   (así la campana funciona en todas las páginas)
  */
 
 import { Button } from "@/components/ui/button";
@@ -38,10 +16,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bell, LogOut, AlertTriangle, Calendar, ExternalLink, Wrench } from "lucide-react";
+import { Bell, LogOut, AlertTriangle, CalendarClock, ArrowRight, Wrench, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
+import { useLocation } from "wouter";
 
 interface HeaderProps {
   title: string;
@@ -51,55 +31,56 @@ interface HeaderProps {
 
 export default function Header({ title, subtitle, selectedCompanyId }: HeaderProps) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // Get notifications from API
-  const { data: notifications = [] } = useQuery({
-    queryKey: ["/api/notifications", selectedCompanyId],
-    enabled: !!selectedCompanyId,
-  });
-
-  // Get unread notification count
-  const { data: unreadData } = useQuery({
-    queryKey: ["/api/notifications/unread-count", selectedCompanyId],
-    enabled: !!selectedCompanyId,
-  });
-
-  const unreadCount = unreadData?.count || 0;
-
-  // Check if user is super admin in support mode
-  const { data: supportStatus } = useQuery({
+  // Modo soporte (super admin)
+  const { data: supportStatus } = useQuery<any>({
     queryKey: ["/api/admin/support-status"],
-    enabled: user?.role === 'super_admin',
+    enabled: user?.role === "super_admin",
     retry: false,
-    refetchInterval: 10000, // Check every 10 seconds
+    refetchInterval: 10000,
   });
 
-  // Format notification date
-  const formatNotificationDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-    
-    if (diffInHours < 1) {
-      return 'hace unos minutos';
-    } else if (diffInHours < 24) {
-      return `hace ${Math.floor(diffInHours)} hora${Math.floor(diffInHours) === 1 ? '' : 's'}`;
-    } else {
-      return date.toLocaleDateString('es-ES');
-    }
-  };
+  // Empresas del usuario: fallback cuando la página no pasa selectedCompanyId
+  const { data: userCompanies = [] } = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    enabled: !selectedCompanyId && !supportStatus?.supportMode,
+  });
 
-  // Mark notification as read
-  const markAsRead = async (notificationId: string) => {
-    try {
-      await fetch(`/api/notifications/${notificationId}/mark-read`, { method: 'POST' });
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
-  };
+  const companyId =
+    selectedCompanyId ||
+    supportStatus?.company?.id ||
+    (userCompanies[0]?.company?.id ?? "");
 
+  // Vencimientos (calculados en tiempo real en el backend)
+  const { data: expirations = [] } = useQuery<any[]>({
+    queryKey: ["/api/notifications", companyId],
+    enabled: !!companyId,
+    refetchInterval: 5 * 60 * 1000, // refrescar cada 5 min
+  });
+
+  const active = expirations.filter((e) => !e.dismissed);
+  const unreadCount = active.length;
   const hasNotifications = unreadCount > 0;
+
+  const dismiss = async (key: string) => {
+    if (!companyId) return;
+    try {
+      await apiRequest("POST", `/api/notifications/${companyId}/dismiss`, { key });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count", companyId] });
+    } catch (error) {
+      console.error("Error al descartar la notificación:", error);
+    }
+  };
+
+  const describeDays = (daysLeft: number) => {
+    if (daysLeft < 0) return `Venció hace ${Math.abs(daysLeft)} día${Math.abs(daysLeft) === 1 ? "" : "s"}`;
+    if (daysLeft === 0) return "Vence hoy";
+    return `Vence en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`;
+  };
 
   const getInitials = (firstName?: string, lastName?: string) => {
     if (!firstName && !lastName) return "U";
@@ -107,9 +88,7 @@ export default function Header({ title, subtitle, selectedCompanyId }: HeaderPro
   };
 
   const getDisplayName = (firstName?: string, lastName?: string, email?: string) => {
-    if (firstName || lastName) {
-      return `${firstName || ""} ${lastName || ""}`.trim();
-    }
+    if (firstName || lastName) return `${firstName || ""} ${lastName || ""}`.trim();
     return email || "Usuario";
   };
 
@@ -142,66 +121,86 @@ export default function Header({ title, subtitle, selectedCompanyId }: HeaderPro
                 <Bell className="w-5 h-5" />
                 {hasNotifications && (
                   <Badge className="absolute -top-1 -right-1 min-w-[1.2rem] h-5 p-1 text-xs bg-destructive text-destructive-foreground">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                    {unreadCount > 9 ? "9+" : unreadCount}
                   </Badge>
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <div className="p-4 border-b">
-                <h4 className="font-semibold text-sm">Notificaciones</h4>
-                <p className="text-xs text-muted-foreground">
-                  {notifications.length === 0 ? 'No hay notificaciones' : `${notifications.length} notificación${notifications.length === 1 ? '' : 'es'}`}
-                </p>
+            <DropdownMenuContent align="end" className="w-96">
+              <div className="p-4 border-b flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold text-sm">Vencimientos</h4>
+                  <p className="text-xs text-muted-foreground">
+                    {unreadCount === 0
+                      ? "Todo al día, sin vencimientos próximos"
+                      : `${unreadCount} alerta${unreadCount === 1 ? "" : "s"} en los próximos 30 días`}
+                  </p>
+                </div>
+                <CalendarClock className="w-5 h-5 text-muted-foreground" />
               </div>
-              <ScrollArea className="max-h-64">
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">
-                    No hay notificaciones
+              <ScrollArea className="max-h-72">
+                {unreadCount === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    No tienes vencimientos por atender.
                   </div>
                 ) : (
-                  notifications.map((notification: any) => (
-                    <div 
-                      key={notification.id} 
-                      className={`p-3 border-b last:border-b-0 hover:bg-muted/50 cursor-pointer ${
-                        notification.type.includes('expired') ? 'bg-destructive/5' : 'bg-warning/5'
+                  active.slice(0, 8).map((item) => (
+                    <div
+                      key={item.key}
+                      className={`p-3 border-b last:border-b-0 hover:bg-muted/50 ${
+                        item.severity === "expired" ? "bg-destructive/5" : ""
                       }`}
-                      onClick={() => markAsRead(notification.id)}
+                      data-testid={`notif-${item.key}`}
                     >
-                      <div className="flex items-start space-x-2">
-                        <AlertTriangle className={`w-4 h-4 mt-0.5 ${
-                          notification.type.includes('expired') ? 'text-destructive' : 'text-warning'
-                        }`} />
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle
+                          className={`w-4 h-4 mt-0.5 shrink-0 ${
+                            item.severity === "expired"
+                              ? "text-destructive"
+                              : item.severity === "critical"
+                              ? "text-orange-500"
+                              : "text-yellow-500"
+                          }`}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">
-                            {notification.title}
+                            {item.kindLabel}: {item.entityName}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {notification.message}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatNotificationDate(notification.createdAt)}
+                            {describeDays(item.daysLeft)} · {new Date(item.date).toLocaleDateString("es-ES")}
                           </p>
                         </div>
-                        <Badge variant={notification.type === 'expired' ? 'destructive' : 'outline'} className="text-xs">
-                          {notification.type === 'expired' ? 'Vencido' : `${notification.daysLeft}d`}
-                        </Badge>
+                        <button
+                          onClick={() => dismiss(item.key)}
+                          className="text-muted-foreground hover:text-foreground shrink-0"
+                          title="Descartar"
+                          data-testid={`dismiss-${item.key}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   ))
                 )}
               </ScrollArea>
-              {notifications.length > 0 && (
-                <div className="p-2 border-t">
-                  <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setShowNotifications(false)}>
-                    <ExternalLink className="w-3 h-3 mr-1" />
-                    Ver todas las aplicaciones
-                  </Button>
-                </div>
-              )}
+              <div className="p-2 border-t">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={() => {
+                    setShowNotifications(false);
+                    navigate("/expirations");
+                  }}
+                  data-testid="button-see-all-expirations"
+                >
+                  Ver todos los vencimientos
+                  <ArrowRight className="w-3 h-3 ml-1" />
+                </Button>
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center space-x-2 p-2" data-testid="button-user-menu">

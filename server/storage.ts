@@ -42,6 +42,8 @@ import {
   type ActivityLog,
   type UserCompany,
   type CompanyRegistration,
+  type ExpirationItem,
+  type ExpirationSeverity,
 } from "@shared/schema";
 import { pool } from "./db";
 
@@ -140,6 +142,10 @@ export interface IStorage {
   updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset>;
   deleteAsset(id: string, companyId: string): Promise<void>;
   
+  // Expiration / notification operations
+  getExpirations(companyId: string, userId: string, withinDays?: number): Promise<ExpirationItem[]>;
+  dismissNotification(companyId: string, userId: string, notificationKey: string): Promise<void>;
+
   // Contract operations
   getContractsByCompany(companyId: string): Promise<Contract[]>;
   setContractAssets(contractId: string, assetIds: string[], companyId: string): Promise<void>;
@@ -826,6 +832,126 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       hardwareCosts: assetMonthly,
       contractCosts: contractMonthly,
     };
+  }
+
+  // ==========================================================================
+  // VENCIMIENTOS (calculados en tiempo real de todas las fuentes)
+  // ==========================================================================
+
+  /**
+   * Devuelve todos los vencimientos de la empresa dentro de `withinDays` días
+   * (incluye los ya vencidos), unificando: licencias, contratos (fin y
+   * renovación), garantías de equipos e infraestructura de apps (dominio, SSL,
+   * hosting, servidor). Marca cuáles descartó el usuario.
+   */
+  async getExpirations(
+    companyId: string,
+    userId: string,
+    withinDays: number = 30
+  ): Promise<ExpirationItem[]> {
+    // Una sola query con UNION ALL: cada fuente aporta filas homogéneas.
+    // `bucket` diferencia el tipo; `edate` es la fecha de vencimiento.
+    const result = await pool.query(
+      `
+      WITH items AS (
+        -- Licencias
+        SELECT 'license'::text AS source, id AS entity_id, name AS entity_name,
+               expiry_date AS edate, COALESCE(monthly_cost, 0) AS monthly_cost
+        FROM licenses
+        WHERE company_id = $1 AND expiry_date IS NOT NULL
+        UNION ALL
+        -- Contratos: fin de contrato
+        SELECT 'contract', id, name, end_date, COALESCE(monthly_cost, 0)
+        FROM contracts
+        WHERE company_id = $1 AND end_date IS NOT NULL
+        UNION ALL
+        -- Contratos: fecha de renovación
+        SELECT 'contract_renewal', id, name, renewal_date, COALESCE(monthly_cost, 0)
+        FROM contracts
+        WHERE company_id = $1 AND renewal_date IS NOT NULL
+        UNION ALL
+        -- Garantía de equipos físicos
+        SELECT 'warranty', id, name, warranty_expiry, COALESCE(monthly_cost, 0)
+        FROM assets
+        WHERE company_id = $1 AND type = 'physical' AND warranty_expiry IS NOT NULL
+        UNION ALL
+        -- Infraestructura de apps
+        SELECT 'domain', id, name, domain_expiry, COALESCE(domain_cost, 0)
+        FROM assets WHERE company_id = $1 AND type = 'application' AND domain_expiry IS NOT NULL
+        UNION ALL
+        SELECT 'ssl', id, name, ssl_expiry, COALESCE(ssl_cost, 0)
+        FROM assets WHERE company_id = $1 AND type = 'application' AND ssl_expiry IS NOT NULL
+        UNION ALL
+        SELECT 'hosting', id, name, hosting_expiry, COALESCE(hosting_cost, 0)
+        FROM assets WHERE company_id = $1 AND type = 'application' AND hosting_expiry IS NOT NULL
+        UNION ALL
+        SELECT 'server', id, name, server_expiry, COALESCE(server_cost, 0)
+        FROM assets WHERE company_id = $1 AND type = 'application' AND server_expiry IS NOT NULL
+      )
+      SELECT source, entity_id, entity_name, edate, monthly_cost,
+             (edate::date - CURRENT_DATE) AS days_left
+      FROM items
+      WHERE edate::date - CURRENT_DATE <= $2
+      ORDER BY edate ASC
+      `,
+      [companyId, withinDays]
+    );
+
+    // Descartes del usuario (por clave determinística)
+    const dismissedRes = await pool.query(
+      `SELECT notification_key FROM notification_dismissals
+       WHERE company_id = $1 AND user_id = $2`,
+      [companyId, userId]
+    );
+    const dismissed = new Set<string>(
+      dismissedRes.rows.map((r: any) => r.notification_key)
+    );
+
+    const kindLabels: Record<string, string> = {
+      license: "Licencia / suscripción",
+      contract: "Contrato",
+      contract_renewal: "Renovación de contrato",
+      warranty: "Garantía",
+      domain: "Dominio",
+      ssl: "Certificado SSL",
+      hosting: "Hosting",
+      server: "Servidor",
+    };
+
+    return result.rows.map((row: any) => {
+      const daysLeft = Number(row.days_left);
+      const dateIso = new Date(row.edate).toISOString();
+      const dateKey = dateIso.slice(0, 10); // YYYY-MM-DD
+      const key = `${row.source}:${row.entity_id}:${dateKey}`;
+      const severity: ExpirationSeverity =
+        daysLeft < 0 ? "expired" : daysLeft <= 7 ? "critical" : "warning";
+      return {
+        key,
+        source: row.source,
+        kindLabel: kindLabels[row.source] ?? row.source,
+        entityId: row.entity_id,
+        entityName: row.entity_name,
+        date: dateIso,
+        daysLeft,
+        severity,
+        monthlyCost: Number(row.monthly_cost || 0),
+        dismissed: dismissed.has(key),
+      } as ExpirationItem;
+    });
+  }
+
+  /** Marca una alerta de vencimiento como descartada por el usuario. */
+  async dismissNotification(
+    companyId: string,
+    userId: string,
+    notificationKey: string
+  ): Promise<void> {
+    await pool.query(
+      `INSERT INTO notification_dismissals (company_id, user_id, notification_key)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (company_id, user_id, notification_key) DO NOTHING`,
+      [companyId, userId, notificationKey]
+    );
   }
 
   async getAssetCounts(companyId: string): Promise<{

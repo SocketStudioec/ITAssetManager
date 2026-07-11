@@ -555,9 +555,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =============================================================================
+  // RUTAS DE VENCIMIENTOS / NOTIFICACIONES
+  // =============================================================================
+  // Los vencimientos se calculan en tiempo real desde licencias, contratos,
+  // garantías de equipos e infraestructura de apps. No hay tabla de
+  // notificaciones que mantener sincronizada; solo se persisten los descartes.
+
+  // Conteo de alertas activas (no descartadas) — para el badge de la campana.
+  // Declarado ANTES de /:companyId para que no lo capture como parámetro.
+  app.get('/api/notifications/unread-count/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      const items = await storage.getExpirations(companyId, userId, 30);
+      const count = items.filter((i) => !i.dismissed).length;
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  // Lista de vencimientos. ?days=30 controla la ventana (default 30).
+  app.get('/api/notifications/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+      const items = await storage.getExpirations(companyId, userId, days);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  // Descartar una alerta (por su clave determinística).
+  app.post('/api/notifications/:companyId/dismiss', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      const key = req.body?.key;
+      if (!key || typeof key !== "string") {
+        return res.status(400).json({ message: "key es requerido" });
+      }
+      await storage.dismissNotification(companyId, userId, key);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error dismissing notification:", error);
+      res.status(500).json({ message: "Failed to dismiss notification" });
+    }
+  });
+
+  // =============================================================================
   // RUTAS DE GESTIÓN DE ACTIVOS
   // =============================================================================
-  
+
   /**
    * GET /api/assets/:companyId
    * Obtiene todos los activos de una empresa específica.
