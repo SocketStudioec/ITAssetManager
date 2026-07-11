@@ -37,6 +37,15 @@ CREATE INDEX IF NOT EXISTS idx_contract_assets_asset_id
 
 COMMENT ON TABLE contract_assets IS 'Relación N:M: activos cubiertos por cada contrato';
 
+-- 3. Permisos: la app conecta como techassets_user, no como postgres (dueño).
+-- Sin este GRANT, la tabla nueva da "permission denied" al leer/escribir.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'techassets_user') THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON contract_assets TO techassets_user;
+  END IF;
+END $$;
+
 -- ============================================================================
 -- FIN — verificar con: \d contract_assets  y  \d licenses
 -- ============================================================================

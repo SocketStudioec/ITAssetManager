@@ -603,7 +603,8 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       [
         contract.companyId, contract.name, contract.vendor, contract.description,
         contract.contractType, contract.startDate, contract.endDate, contract.renewalDate,
-        contract.monthlyCost, contract.annualCost, contract.status, contract.autoRenewal,
+        // status y auto_renewal son NOT NULL: default explícito si no vienen del form
+        contract.monthlyCost ?? 0, contract.annualCost ?? 0, contract.status ?? 'active', contract.autoRenewal ?? false,
         contract.notes
       ]
     );
@@ -671,9 +672,10 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       RETURNING *`,
       [
         license.companyId, license.assetId, license.name, license.vendor, license.licenseKey,
-        license.licenseType, license.maxUsers, license.currentUsers, license.purchaseDate,
-        license.expiryDate, license.monthlyCost, license.annualCost,
-        license.billingCycle ?? 'monthly', license.status, license.notes
+        license.licenseType, license.maxUsers, license.currentUsers ?? 0, license.purchaseDate,
+        license.expiryDate, license.monthlyCost ?? 0, license.annualCost ?? 0,
+        // status es NOT NULL: default explícito si no viene del form
+        license.billingCycle ?? 'monthly', license.status ?? 'active', license.notes
       ]
     );
     return mapRowToCamel<License>(result.rows[0]);
