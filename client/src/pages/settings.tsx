@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { insertCompanySchema } from "@shared/schema";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
+import NotificationSettings from "@/components/settings/notification-settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,6 @@ import {
   Edit2, 
   Trash2,
   Shield,
-  Bell,
   Database
 } from "lucide-react";
 import { z } from "zod";
@@ -516,57 +516,15 @@ export default function Settings() {
               </TabsContent>
 
               <TabsContent value="notifications" className="mt-6">
-                <Card className="border-border">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Bell className="w-5 h-5 mr-2" />
-                      Configuración de Notificaciones
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-medium">Licencias por vencer</h4>
-                          <p className="text-sm text-muted-foreground">Recibe alertas cuando las licencias estén próximas a vencer</p>
-                        </div>
-                        <Button variant="outline" size="sm" data-testid="button-toggle-license-notifications">
-                          Activado
-                        </Button>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-medium">Mantenimiento programado</h4>
-                          <p className="text-sm text-muted-foreground">Notificaciones de mantenimiento de equipos</p>
-                        </div>
-                        <Button variant="outline" size="sm" data-testid="button-toggle-maintenance-notifications">
-                          Activado
-                        </Button>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-medium">Contratos por renovar</h4>
-                          <p className="text-sm text-muted-foreground">Alertas de contratos próximos a vencer</p>
-                        </div>
-                        <Button variant="outline" size="sm" data-testid="button-toggle-contract-notifications">
-                          Activado
-                        </Button>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-medium">Reportes mensuales</h4>
-                          <p className="text-sm text-muted-foreground">Resumen mensual de costos y activos</p>
-                        </div>
-                        <Button variant="outline" size="sm" data-testid="button-toggle-monthly-reports">
-                          Activado
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {selectedCompanyId ? (
+                  <NotificationSettings companyId={selectedCompanyId} />
+                ) : (
+                  <Card className="border-border">
+                    <CardContent className="py-10 text-center text-muted-foreground">
+                      Selecciona una empresa para configurar sus notificaciones.
+                    </CardContent>
+                  </Card>
+                )}
               </TabsContent>
 
               <TabsContent value="system" className="mt-6">

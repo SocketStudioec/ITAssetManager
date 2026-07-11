@@ -47,7 +47,24 @@ Endpoints: `GET /api/notifications/:companyId?days=`,
 `POST /api/notifications/:companyId/dismiss` (body `{key}`). La campana del
 `header.tsx` los consume (con fallback a la primera empresa si la página no pasa
 `selectedCompanyId`). Severidad: `expired` (<0d), `critical` (≤7d), `warning`
-(≤30d). Pendiente futuro: notificaciones por email (requiere SMTP).
+(≤30d).
+
+**Notificaciones por email** (implementado, migración 003): cada empresa tiene
+preferencias en `company_notification_settings` (activar email, destinatarios,
+`days_before` = días de antelación, y qué fuentes vigilar: licencias/contratos/
+garantías). Se editan en Configuración → Notificaciones
+(`client/src/components/settings/notification-settings.tsx`). API:
+`GET/PUT /api/notification-settings/:companyId` y
+`POST /api/notification-settings/:companyId/test` (correo de prueba). El envío
+usa la API HTTP de begroupmail (`server/email.ts`, Basic Auth, portada de la app
+Bflash) configurable por `MAIL_API_URL/USER/PASSWORD` y `MAIL_FROM` en `.env`.
+El `server/scheduler.ts` corre dentro del proceso Express (cada 12h + 30s tras
+el arranque): por cada empresa con email activo, envía UN correo con los
+vencimientos que caen en `[0, days_before]` días y registra cada aviso en
+`notification_email_log` para no reenviarlo (dedupe por clave con fecha objetivo,
+seguro ante reinicios). Nunca lanza: sus errores se registran sin tumbar el
+proceso. **Al desplegar en el VPS hay que aplicar la migración 003** y poner las
+`MAIL_*` en el `.env`.
 
 ## Estructura del repositorio
 

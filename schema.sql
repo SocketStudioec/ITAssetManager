@@ -336,6 +336,52 @@ CREATE INDEX idx_activity_created_at ON activity_log(created_at);
 CREATE INDEX idx_activity_entity_type ON activity_log(entity_type);
 
 -- ============================================================================
+-- TABLA DE DESCARTES DE NOTIFICACIONES (migración 002)
+-- ============================================================================
+-- Los vencimientos se CALCULAN en tiempo real; esta tabla solo guarda qué
+-- alertas descartó cada usuario (la clave incluye la fecha objetivo).
+CREATE TABLE notification_dismissals (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notification_key VARCHAR NOT NULL,
+  dismissed_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_notif_dismiss_unique
+  ON notification_dismissals(company_id, user_id, notification_key);
+CREATE INDEX idx_notif_dismiss_company ON notification_dismissals(company_id);
+
+-- ============================================================================
+-- MÓDULO DE NOTIFICACIONES POR EMAIL (migración 003)
+-- ============================================================================
+-- Preferencias por empresa: activar correo, destinatarios, días de antelación
+-- y qué fuentes de vencimiento vigilar.
+CREATE TABLE company_notification_settings (
+  company_id VARCHAR PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+  email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  recipient_emails TEXT NOT NULL DEFAULT '',
+  days_before INTEGER NOT NULL DEFAULT 1,
+  notify_licenses BOOLEAN NOT NULL DEFAULT TRUE,
+  notify_contracts BOOLEAN NOT NULL DEFAULT TRUE,
+  notify_warranties BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Correos de vencimiento ya enviados (dedupe: no reenviar el mismo aviso).
+CREATE TABLE notification_email_log (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  notification_key VARCHAR NOT NULL,
+  recipients TEXT NOT NULL DEFAULT '',
+  sent_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_notif_email_log_unique
+  ON notification_email_log(company_id, notification_key);
+CREATE INDEX idx_notif_email_log_company ON notification_email_log(company_id);
+
+-- ============================================================================
 -- COMENTARIOS DE TABLAS
 -- ============================================================================
 

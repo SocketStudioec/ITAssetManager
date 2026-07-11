@@ -47,6 +47,38 @@ import {
 } from "@shared/schema";
 import { pool } from "./db";
 
+/** Preferencias de notificación por email de una empresa. */
+export interface NotificationSettings {
+  companyId: string;
+  emailEnabled: boolean;
+  recipientEmails: string;
+  daysBefore: number;
+  notifyLicenses: boolean;
+  notifyContracts: boolean;
+  notifyWarranties: boolean;
+}
+
+/** Un vencimiento dentro de la ventana de aviso, listo para notificar. */
+export interface DueExpiration {
+  key: string;          // source:entityId:YYYY-MM-DD (determinística)
+  source: string;       // license | contract | contract_renewal | warranty
+  kindLabel: string;
+  entityName: string;
+  date: string;         // ISO
+  daysLeft: number;
+  monthlyCost: number;
+}
+
+/** Valores por defecto cuando la empresa aún no guardó preferencias. */
+const DEFAULT_NOTIFICATION_SETTINGS: Omit<NotificationSettings, "companyId"> = {
+  emailEnabled: true,
+  recipientEmails: "",
+  daysBefore: 1,
+  notifyLicenses: true,
+  notifyContracts: true,
+  notifyWarranties: true,
+};
+
 /**
  * FUNCIÓN HELPER: Mapeo de Columnas PostgreSQL a TypeScript
  * 
@@ -145,6 +177,12 @@ export interface IStorage {
   // Expiration / notification operations
   getExpirations(companyId: string, userId: string, withinDays?: number): Promise<ExpirationItem[]>;
   dismissNotification(companyId: string, userId: string, notificationKey: string): Promise<void>;
+  getNotificationSettings(companyId: string): Promise<NotificationSettings>;
+  upsertNotificationSettings(companyId: string, data: Partial<NotificationSettings>): Promise<NotificationSettings>;
+  getCompaniesForNotifications(): Promise<{ id: string; name: string; email: string | null }[]>;
+  getDueExpirations(companyId: string, settings: NotificationSettings): Promise<DueExpiration[]>;
+  wasNotificationEmailSent(companyId: string, notificationKey: string): Promise<boolean>;
+  logNotificationEmail(companyId: string, notificationKey: string, recipients: string): Promise<void>;
 
   // Contract operations
   getContractsByCompany(companyId: string): Promise<Contract[]>;
@@ -951,6 +989,175 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
        VALUES ($1, $2, $3)
        ON CONFLICT (company_id, user_id, notification_key) DO NOTHING`,
       [companyId, userId, notificationKey]
+    );
+  }
+
+  // ==========================================================================
+  // Configuración de notificaciones por email (módulo de Configuración)
+  // ==========================================================================
+
+  /** Devuelve las preferencias de la empresa, o los defaults si no hay fila. */
+  async getNotificationSettings(companyId: string): Promise<NotificationSettings> {
+    const res = await pool.query(
+      `SELECT email_enabled, recipient_emails, days_before,
+              notify_licenses, notify_contracts, notify_warranties
+       FROM company_notification_settings WHERE company_id = $1`,
+      [companyId]
+    );
+    if (res.rows.length === 0) {
+      return { companyId, ...DEFAULT_NOTIFICATION_SETTINGS };
+    }
+    const r = res.rows[0];
+    return {
+      companyId,
+      emailEnabled: r.email_enabled,
+      recipientEmails: r.recipient_emails ?? "",
+      daysBefore: Number(r.days_before ?? 1),
+      notifyLicenses: r.notify_licenses,
+      notifyContracts: r.notify_contracts,
+      notifyWarranties: r.notify_warranties,
+    };
+  }
+
+  /** Inserta o actualiza las preferencias (merge sobre lo existente). */
+  async upsertNotificationSettings(
+    companyId: string,
+    data: Partial<NotificationSettings>
+  ): Promise<NotificationSettings> {
+    const current = await this.getNotificationSettings(companyId);
+    const merged: NotificationSettings = { ...current, ...data, companyId };
+    // days_before acotado a un rango sano (1..365).
+    merged.daysBefore = Math.min(Math.max(Math.trunc(merged.daysBefore) || 1, 1), 365);
+
+    await pool.query(
+      `INSERT INTO company_notification_settings
+         (company_id, email_enabled, recipient_emails, days_before,
+          notify_licenses, notify_contracts, notify_warranties, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (company_id) DO UPDATE SET
+         email_enabled = EXCLUDED.email_enabled,
+         recipient_emails = EXCLUDED.recipient_emails,
+         days_before = EXCLUDED.days_before,
+         notify_licenses = EXCLUDED.notify_licenses,
+         notify_contracts = EXCLUDED.notify_contracts,
+         notify_warranties = EXCLUDED.notify_warranties,
+         updated_at = NOW()`,
+      [
+        companyId,
+        merged.emailEnabled,
+        merged.recipientEmails,
+        merged.daysBefore,
+        merged.notifyLicenses,
+        merged.notifyContracts,
+        merged.notifyWarranties,
+      ]
+    );
+    return merged;
+  }
+
+  /** Empresas activas (para que el scheduler recorra sus vencimientos). */
+  async getCompaniesForNotifications(): Promise<
+    { id: string; name: string; email: string | null }[]
+  > {
+    const res = await pool.query(
+      `SELECT id, name, email FROM companies WHERE is_active = TRUE`
+    );
+    return res.rows.map((r: any) => ({ id: r.id, name: r.name, email: r.email }));
+  }
+
+  /**
+   * Vencimientos de una empresa que caen dentro de la ventana de aviso
+   * (0..days_before días), según las fuentes activadas en su configuración.
+   * No aplica descartes de usuario: el dedupe de email es aparte.
+   */
+  async getDueExpirations(
+    companyId: string,
+    settings: NotificationSettings
+  ): Promise<DueExpiration[]> {
+    const parts: string[] = [];
+    if (settings.notifyLicenses) {
+      parts.push(`
+        SELECT 'license'::text AS source, id AS entity_id, name AS entity_name,
+               expiry_date AS edate, COALESCE(monthly_cost, 0) AS monthly_cost
+        FROM licenses
+        WHERE company_id = $1 AND expiry_date IS NOT NULL`);
+    }
+    if (settings.notifyContracts) {
+      parts.push(`
+        SELECT 'contract', id, name, end_date, COALESCE(monthly_cost, 0)
+        FROM contracts WHERE company_id = $1 AND end_date IS NOT NULL`);
+      parts.push(`
+        SELECT 'contract_renewal', id, name, renewal_date, COALESCE(monthly_cost, 0)
+        FROM contracts WHERE company_id = $1 AND renewal_date IS NOT NULL`);
+    }
+    if (settings.notifyWarranties) {
+      parts.push(`
+        SELECT 'warranty', id, name, warranty_expiry, COALESCE(monthly_cost, 0)
+        FROM assets
+        WHERE company_id = $1 AND type = 'physical' AND warranty_expiry IS NOT NULL`);
+    }
+    if (parts.length === 0) return [];
+
+    const result = await pool.query(
+      `
+      WITH items AS (
+        ${parts.join("\n        UNION ALL\n")}
+      )
+      SELECT source, entity_id, entity_name, edate, monthly_cost,
+             (edate::date - CURRENT_DATE) AS days_left
+      FROM items
+      WHERE edate::date - CURRENT_DATE BETWEEN 0 AND $2
+      ORDER BY edate ASC
+      `,
+      [companyId, settings.daysBefore]
+    );
+
+    const kindLabels: Record<string, string> = {
+      license: "Licencia / suscripción",
+      contract: "Contrato",
+      contract_renewal: "Renovación de contrato",
+      warranty: "Garantía",
+    };
+
+    return result.rows.map((row: any) => {
+      const dateIso = new Date(row.edate).toISOString();
+      const dateKey = dateIso.slice(0, 10);
+      return {
+        key: `${row.source}:${row.entity_id}:${dateKey}`,
+        source: row.source,
+        kindLabel: kindLabels[row.source] ?? row.source,
+        entityName: row.entity_name,
+        date: dateIso,
+        daysLeft: Number(row.days_left),
+        monthlyCost: Number(row.monthly_cost || 0),
+      } as DueExpiration;
+    });
+  }
+
+  /** True si ya se envió el correo para esa clave (dedupe). */
+  async wasNotificationEmailSent(
+    companyId: string,
+    notificationKey: string
+  ): Promise<boolean> {
+    const res = await pool.query(
+      `SELECT 1 FROM notification_email_log
+       WHERE company_id = $1 AND notification_key = $2 LIMIT 1`,
+      [companyId, notificationKey]
+    );
+    return res.rows.length > 0;
+  }
+
+  /** Registra un correo de vencimiento como enviado. */
+  async logNotificationEmail(
+    companyId: string,
+    notificationKey: string,
+    recipients: string
+  ): Promise<void> {
+    await pool.query(
+      `INSERT INTO notification_email_log (company_id, notification_key, recipients)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (company_id, notification_key) DO NOTHING`,
+      [companyId, notificationKey, recipients]
     );
   }
 

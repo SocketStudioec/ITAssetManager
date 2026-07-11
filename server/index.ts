@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic, log } from "./static";
+import { startNotificationScheduler } from "./scheduler";
 
 const app = express();
 app.use(express.json());
@@ -79,6 +80,9 @@ process.on("uncaughtException", (err) => {
   const host = process.env.HOST || "127.0.0.1";
   server.listen({ port, host }, () => {
     log(`serving on http://${host}:${port}`);
+    // Scheduler de notificaciones por email (recordatorios de vencimiento).
+    // Corre en segundo plano; sus errores nunca tumban el proceso.
+    startNotificationScheduler();
   });
 
   // Apagado ordenado: PM2 envía SIGINT al hacer stop/reload.

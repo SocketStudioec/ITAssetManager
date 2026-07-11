@@ -121,6 +121,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { sendEmail, parseRecipients } from "./email";
 import { setupAuth, isAuthenticated, passwordUtils, jwtUtils, setJwtCookie, clearJwtCookie } from "./auth";
 import {
   insertAssetSchema,
@@ -604,6 +605,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error dismissing notification:", error);
       res.status(500).json({ message: "Failed to dismiss notification" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Configuración de notificaciones por email (Configuración → Notificaciones)
+  // ---------------------------------------------------------------------------
+
+  // Verifica que el usuario pertenece a la empresa antes de leer/escribir su
+  // configuración. Devuelve true si tiene acceso.
+  const userBelongsToCompany = async (userId: string, companyId: string) => {
+    const companies = await storage.getUserCompanies(userId);
+    return companies.some((uc) => uc.company.id === companyId);
+  };
+
+  // Lee las preferencias de notificación de la empresa (o defaults).
+  app.get('/api/notification-settings/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      if (!(await userBelongsToCompany(userId, companyId))) {
+        return res.status(403).json({ message: "Sin acceso a esta empresa" });
+      }
+      const settings = await storage.getNotificationSettings(companyId);
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching notification settings:", error);
+      res.status(500).json({ message: "Failed to fetch notification settings" });
+    }
+  });
+
+  // Guarda las preferencias de notificación de la empresa.
+  app.put('/api/notification-settings/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      if (!(await userBelongsToCompany(userId, companyId))) {
+        return res.status(403).json({ message: "Sin acceso a esta empresa" });
+      }
+      const schema = z.object({
+        emailEnabled: z.boolean().optional(),
+        recipientEmails: z.string().max(2000).optional(),
+        daysBefore: z.number().int().min(1).max(365).optional(),
+        notifyLicenses: z.boolean().optional(),
+        notifyContracts: z.boolean().optional(),
+        notifyWarranties: z.boolean().optional(),
+      });
+      const data = schema.parse(req.body ?? {});
+      const saved = await storage.upsertNotificationSettings(companyId, data);
+      res.json(saved);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Datos inválidos", errors: error.errors });
+      }
+      console.error("Error saving notification settings:", error);
+      res.status(500).json({ message: "Failed to save notification settings" });
+    }
+  });
+
+  // Envía un correo de prueba a los destinatarios configurados (o al del body).
+  app.post('/api/notification-settings/:companyId/test', isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const userId = req.user.userId;
+      if (!(await userBelongsToCompany(userId, companyId))) {
+        return res.status(403).json({ message: "Sin acceso a esta empresa" });
+      }
+      const settings = await storage.getNotificationSettings(companyId);
+      const company = await storage.getCompanyById(companyId);
+      const raw =
+        (typeof req.body?.recipientEmails === "string" && req.body.recipientEmails) ||
+        settings.recipientEmails ||
+        company?.email ||
+        "";
+      const recipients = parseRecipients(raw);
+      if (recipients.length === 0) {
+        return res.status(400).json({ message: "No hay destinatarios válidos configurados." });
+      }
+      const html = `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+          <h2 style="color:#0f172a">Correo de prueba — TechAssets Pro</h2>
+          <p>Este es un correo de prueba del módulo de notificaciones de
+          <strong>${(company?.name ?? "tu empresa").replace(/</g, "&lt;")}</strong>.</p>
+          <p>Si lo recibes, la configuración de correo funciona correctamente y
+          recibirás los recordatorios de vencimiento
+          <strong>${settings.daysBefore} día(s)</strong> antes.</p>
+        </div>`;
+      const result = await sendEmail(
+        recipients,
+        "Correo de prueba — TechAssets Pro",
+        html
+      );
+      if (result.ok) {
+        res.json({ success: true, message: result.message });
+      } else {
+        res.status(502).json({ success: false, message: result.message });
+      }
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Failed to send test email" });
     }
   });
 
