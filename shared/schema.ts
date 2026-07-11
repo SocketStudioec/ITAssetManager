@@ -104,7 +104,19 @@ export interface Contract {
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Activos (equipos físicos o aplicaciones) cubiertos por el contrato */
+  linkedAssets?: ContractLinkedAsset[];
 }
+
+/** Resumen de un activo vinculado a un contrato (tabla contract_assets) */
+export interface ContractLinkedAsset {
+  id: string;
+  name: string;
+  type: AssetType;
+}
+
+/** Ciclo de facturación de una licencia/suscripción */
+export type BillingCycle = "monthly" | "annual" | "one_time";
 
 export interface License {
   id: string;
@@ -120,6 +132,8 @@ export interface License {
   expiryDate: Date | null;
   monthlyCost: number;
   annualCost: number;
+  /** Recurrencia del pago: mensual, anual o pago único */
+  billingCycle: BillingCycle;
   status: AssetStatus;
   notes: string | null;
   createdAt: Date;
@@ -227,14 +241,17 @@ export const insertContractSchema = z.object({
   vendor: z.string().min(1, "Proveedor es requerido"),
   description: z.string().optional().nullable(),
   contractType: z.string().min(1, "Tipo de contrato es requerido"),
-  startDate: z.date(),
-  endDate: z.date(),
-  renewalDate: z.date().optional().nullable(),
-  monthlyCost: z.preprocess((val) => (val === "" ? undefined : val), z.number().optional()),
-  annualCost: z.preprocess((val) => (val === "" ? undefined : val), z.number().optional()),
+  // coerce: el body JSON llega con fechas como string ISO
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+  renewalDate: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.date().optional().nullable()),
+  monthlyCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  annualCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
   status: z.enum(["active", "expired", "pending_renewal", "cancelled"]).optional(),
   autoRenewal: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  /** IDs de activos (equipos/aplicaciones) cubiertos por el contrato */
+  assetIds: z.array(z.string()).optional(),
 });
 
 // License schemas
@@ -245,12 +262,14 @@ export const insertLicenseSchema = z.object({
   vendor: z.string().min(1, "Proveedor es requerido"),
   licenseKey: z.string().optional().nullable(),
   licenseType: z.string().optional().nullable(),
-  maxUsers: z.number().optional().nullable(),
-  currentUsers: z.number().optional(),
-  purchaseDate: z.string().datetime().optional().nullable(),
-  expiryDate: z.date().optional().nullable(),
-  monthlyCost: z.preprocess((val) => (val === "" ? undefined : val), z.number().optional()),
-  annualCost: z.preprocess((val) => (val === "" ? undefined : val), z.number().optional()),
+  maxUsers: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.number().optional().nullable()),
+  currentUsers: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  // coerce: el body JSON llega con fechas como string ISO
+  purchaseDate: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.date().optional().nullable()),
+  expiryDate: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.date().optional().nullable()),
+  monthlyCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  annualCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  billingCycle: z.enum(["monthly", "annual", "one_time"]).optional(),
   status: z.enum(["active", "inactive", "maintenance", "deprecated", "disposed"]).optional(),
   notes: z.string().optional().nullable(),
 });

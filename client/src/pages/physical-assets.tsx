@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import AddAssetModal from "@/components/modals/add-asset-modal";
+import AddPhysicalAssetModal from "@/components/modals/add-physical-asset-modal";
 import EditAssetModal from "@/components/modals/edit-asset-modal";
 import { Plus, Search, Filter, Edit2, Trash2, Eye, Wrench, Calendar, AlertTriangle } from "lucide-react";
 
@@ -382,8 +382,8 @@ export default function PhysicalAssets() {
         </main>
       </div>
 
-      {/* Modal para agregar activo */}
-      <AddAssetModal
+      {/* Asistente de 3 pasos para agregar equipo físico */}
+      <AddPhysicalAssetModal
         open={showAddAssetModal}
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}

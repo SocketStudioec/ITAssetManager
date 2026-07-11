@@ -251,6 +251,7 @@ CREATE TABLE licenses (
   expiry_date TIMESTAMP,
   monthly_cost DECIMAL(10, 2) DEFAULT 0,
   annual_cost DECIMAL(10, 2) DEFAULT 0,
+  billing_cycle VARCHAR NOT NULL DEFAULT 'monthly',  -- monthly | annual | one_time
   status asset_status NOT NULL DEFAULT 'active',
   notes TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
@@ -262,6 +263,21 @@ CREATE INDEX idx_licenses_company_id ON licenses(company_id);
 CREATE INDEX idx_licenses_asset_id ON licenses(asset_id);
 CREATE INDEX idx_licenses_expiry_date ON licenses(expiry_date);
 CREATE INDEX idx_licenses_status ON licenses(status);
+
+-- ============================================================================
+-- TABLA DE RELACIÓN CONTRATOS-ACTIVOS
+-- ============================================================================
+-- Relación N:M: qué activos (equipos físicos o aplicaciones) cubre cada contrato
+CREATE TABLE contract_assets (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  contract_id VARCHAR NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+  asset_id VARCHAR NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_contract_assets_unique ON contract_assets(contract_id, asset_id);
+CREATE INDEX idx_contract_assets_contract_id ON contract_assets(contract_id);
+CREATE INDEX idx_contract_assets_asset_id ON contract_assets(asset_id);
 
 -- ============================================================================
 -- TABLA DE REGISTROS DE MANTENIMIENTO

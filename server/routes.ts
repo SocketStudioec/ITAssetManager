@@ -794,22 +794,104 @@ app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) 
     try {
       const userId = req.user.userId;
       const validatedData = insertContractSchema.parse(req.body);
-      
-      const contract = await storage.createContract(validatedData);
-      
+      const { assetIds, ...contractData } = validatedData;
+
+      const contract = await storage.createContract(contractData);
+
+      // Vincular activos cubiertos por el contrato (valida pertenencia a la empresa)
+      if (assetIds && assetIds.length > 0) {
+        await storage.setContractAssets(contract.id, assetIds, contractData.companyId);
+      }
+
       await storage.logActivity({
-        companyId: validatedData.companyId,
+        companyId: contractData.companyId,
         userId,
         action: "created",
         entityType: "contract",
         entityId: contract.id,
         entityName: contract.name,
       });
-      
+
       res.json(contract);
     } catch (error) {
       console.error("Error creating contract:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Datos de contrato inválidos", errors: error.errors });
+      }
       res.status(400).json({ message: "Failed to create contract" });
+    }
+  });
+
+  app.put('/api/contracts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.userId;
+      const companyId = req.body.companyId;
+      if (!companyId) {
+        return res.status(400).json({ message: "companyId es requerido" });
+      }
+
+      const updateSchema = insertContractSchema.partial().extend({ companyId: z.string().min(1) });
+      const validatedData = updateSchema.parse(req.body);
+      const { assetIds, ...contractData } = validatedData;
+
+      // Multi-tenancy: verificar que el contrato pertenece a la empresa
+      const existing = await storage.getContractById(id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Contrato no encontrado" });
+      }
+
+      const contract = await storage.updateContract(id, contractData);
+
+      // assetIds undefined = no tocar vínculos; arreglo (incluso vacío) = reemplazar
+      if (assetIds !== undefined) {
+        await storage.setContractAssets(id, assetIds, companyId);
+      }
+
+      await storage.logActivity({
+        companyId,
+        userId,
+        action: "updated",
+        entityType: "contract",
+        entityId: contract.id,
+        entityName: contract.name,
+      });
+
+      res.json(contract);
+    } catch (error) {
+      console.error("Error updating contract:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Datos de contrato inválidos", errors: error.errors });
+      }
+      res.status(400).json({ message: "Failed to update contract" });
+    }
+  });
+
+  app.delete('/api/contracts/:id/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id, companyId } = req.params;
+      const userId = req.user.userId;
+
+      const existing = await storage.getContractById(id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Contrato no encontrado" });
+      }
+
+      await storage.deleteContract(id, companyId);
+
+      await storage.logActivity({
+        companyId,
+        userId,
+        action: "deleted",
+        entityType: "contract",
+        entityId: id,
+        entityName: existing.name,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting contract:", error);
+      res.status(500).json({ message: "Failed to delete contract" });
     }
   });
 
@@ -844,7 +926,77 @@ app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) 
       res.json(license);
     } catch (error) {
       console.error("Error creating license:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Datos de licencia inválidos", errors: error.errors });
+      }
       res.status(400).json({ message: "Failed to create license" });
+    }
+  });
+
+  app.put('/api/licenses/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.userId;
+      const companyId = req.body.companyId;
+      if (!companyId) {
+        return res.status(400).json({ message: "companyId es requerido" });
+      }
+
+      const updateSchema = insertLicenseSchema.partial().extend({ companyId: z.string().min(1) });
+      const validatedData = updateSchema.parse(req.body);
+
+      // Multi-tenancy: verificar que la licencia pertenece a la empresa
+      const existing = await storage.getLicenseById(id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Licencia no encontrada" });
+      }
+
+      const license = await storage.updateLicense(id, validatedData);
+
+      await storage.logActivity({
+        companyId,
+        userId,
+        action: "updated",
+        entityType: "license",
+        entityId: license.id,
+        entityName: license.name,
+      });
+
+      res.json(license);
+    } catch (error) {
+      console.error("Error updating license:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Datos de licencia inválidos", errors: error.errors });
+      }
+      res.status(400).json({ message: "Failed to update license" });
+    }
+  });
+
+  app.delete('/api/licenses/:id/:companyId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id, companyId } = req.params;
+      const userId = req.user.userId;
+
+      const existing = await storage.getLicenseById(id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Licencia no encontrada" });
+      }
+
+      await storage.deleteLicense(id, companyId);
+
+      await storage.logActivity({
+        companyId,
+        userId,
+        action: "deleted",
+        entityType: "license",
+        entityId: id,
+        entityName: existing.name,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting license:", error);
+      res.status(500).json({ message: "Failed to delete license" });
     }
   });
 

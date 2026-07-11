@@ -10,9 +10,8 @@ import Register from "@/pages/register";
 import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
 import PhysicalAssets from "@/pages/physical-assets";
-import Applications from "@/pages/applications";
+import Subscriptions from "@/pages/subscriptions";
 import Contracts from "@/pages/contracts";
-import Licenses from "@/pages/licenses";
 import Maintenance from "@/pages/maintenance";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
@@ -35,9 +34,12 @@ function Router() {
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/assets" component={PhysicalAssets} />
-          <Route path="/applications" component={Applications} />
+          {/* Módulo fusionado: aplicaciones + licencias = suscripciones */}
+          <Route path="/subscriptions" component={Subscriptions} />
+          {/* Rutas antiguas: siguen funcionando, muestran el módulo fusionado */}
+          <Route path="/applications" component={Subscriptions} />
+          <Route path="/licenses" component={Subscriptions} />
           <Route path="/contracts" component={Contracts} />
-          <Route path="/licenses" component={Licenses} />
           <Route path="/maintenance" component={Maintenance} />
           <Route path="/reports" component={Reports} />
           <Route path="/settings" component={Settings} />

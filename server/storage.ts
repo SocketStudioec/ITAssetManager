@@ -61,6 +61,27 @@ import { pool } from "./db";
  * // PostgreSQL retorna: { first_name: "John", last_name: "Doe", password_hash: "$2b$10..." }
  * // Esta función mapea a: { firstName: "John", lastName: "Doe", passwordHash: "$2b$10..." }
  */
+/**
+ * Mapeador genérico snake_case → camelCase para filas de PostgreSQL.
+ *
+ * El frontend consume TODAS las entidades en camelCase (monthlyCost, expiryDate),
+ * pero `SELECT *` devuelve columnas snake_case (monthly_cost, expiry_date).
+ * Sin este mapeo, costos y fechas llegan como undefined a la UI.
+ */
+function mapRowToCamel<T = any>(row: any): T {
+  if (!row || typeof row !== "object") return row;
+  const mapped: any = {};
+  for (const [key, value] of Object.entries(row)) {
+    const camelKey = key.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+    mapped[camelKey] = value;
+  }
+  return mapped as T;
+}
+
+function mapRowsToCamel<T = any>(rows: any[]): T[] {
+  return rows.map((r) => mapRowToCamel<T>(r));
+}
+
 function mapUserFromDb(row: any): User | undefined {
   if (!row) return undefined;
   return {
@@ -121,6 +142,7 @@ export interface IStorage {
   
   // Contract operations
   getContractsByCompany(companyId: string): Promise<Contract[]>;
+  setContractAssets(contractId: string, assetIds: string[], companyId: string): Promise<void>;
   getContractById(id: string, companyId: string): Promise<Contract | undefined>;
   createContract(contract: InsertContract): Promise<Contract>;
   updateContract(id: string, contract: Partial<InsertContract>): Promise<Contract>;
@@ -447,10 +469,10 @@ export class DatabaseStorage implements IStorage {
   
   async getAssetsByCompany(companyId: string): Promise<Asset[]> {
     const result = await pool.query(
-      'SELECT * FROM assets WHERE company_id = $1',
+      'SELECT * FROM assets WHERE company_id = $1 ORDER BY created_at DESC',
       [companyId]
     );
-    return result.rows as Asset[];
+    return mapRowsToCamel<Asset>(result.rows);
   }
 
   async getAssetById(id: string, companyId: string): Promise<Asset | undefined> {
@@ -458,7 +480,7 @@ export class DatabaseStorage implements IStorage {
       'SELECT * FROM assets WHERE id = $1 AND company_id = $2',
       [id, companyId]
     );
-    return result.rows[0] as Asset | undefined;
+    return result.rows[0] ? mapRowToCamel<Asset>(result.rows[0]) : undefined;
   }
 
   async createAsset(asset: InsertAsset): Promise<Asset> {
@@ -479,7 +501,7 @@ export class DatabaseStorage implements IStorage {
         asset.domainExpiry, asset.sslExpiry, asset.hostingExpiry, asset.serverExpiry
       ]
     );
-    return result.rows[0] as Asset;
+    return mapRowToCamel<Asset>(result.rows[0]);
   }
 
 async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
@@ -500,9 +522,8 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
   values.push(id);
 
   const query = `UPDATE assets SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-  const result = await pool.query(query, values); 
-  const updatedAsset = result.rows[0] as Asset;
-  return updatedAsset;
+  const result = await pool.query(query, values);
+  return mapRowToCamel<Asset>(result.rows[0]);
 }
 
   async deleteAsset(id: string, companyId: string): Promise<void> {
@@ -517,11 +538,23 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
   // ==========================================================================
   
   async getContractsByCompany(companyId: string): Promise<Contract[]> {
+    // Incluye los activos vinculados (contract_assets) como arreglo JSON
     const result = await pool.query(
-      'SELECT * FROM contracts WHERE company_id = $1',
+      `SELECT c.*,
+              COALESCE(
+                json_agg(json_build_object('id', a.id, 'name', a.name, 'type', a.type))
+                  FILTER (WHERE a.id IS NOT NULL),
+                '[]'
+              ) AS linked_assets
+       FROM contracts c
+       LEFT JOIN contract_assets ca ON ca.contract_id = c.id
+       LEFT JOIN assets a ON a.id = ca.asset_id
+       WHERE c.company_id = $1
+       GROUP BY c.id
+       ORDER BY c.created_at DESC`,
       [companyId]
     );
-    return result.rows as Contract[];
+    return mapRowsToCamel<Contract>(result.rows);
   }
 
   async getContractById(id: string, companyId: string): Promise<Contract | undefined> {
@@ -529,7 +562,35 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       'SELECT * FROM contracts WHERE id = $1 AND company_id = $2',
       [id, companyId]
     );
-    return result.rows[0] as Contract | undefined;
+    return result.rows[0] ? mapRowToCamel<Contract>(result.rows[0]) : undefined;
+  }
+
+  /**
+   * Reemplaza el conjunto de activos vinculados a un contrato.
+   * Solo vincula activos que pertenezcan a la misma empresa (multi-tenancy).
+   */
+  async setContractAssets(contractId: string, assetIds: string[], companyId: string): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM contract_assets WHERE contract_id = $1', [contractId]);
+      if (assetIds.length > 0) {
+        // INSERT ... SELECT valida la pertenencia del activo a la empresa
+        await client.query(
+          `INSERT INTO contract_assets (contract_id, asset_id)
+           SELECT $1, a.id FROM assets a
+           WHERE a.id = ANY($2) AND a.company_id = $3
+           ON CONFLICT DO NOTHING`,
+          [contractId, assetIds, companyId]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createContract(contract: InsertContract): Promise<Contract> {
@@ -546,7 +607,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
         contract.notes
       ]
     );
-    return result.rows[0] as Contract;
+    return mapRowToCamel<Contract>(result.rows[0]);
   }
 
   async updateContract(id: string, contract: Partial<InsertContract>): Promise<Contract> {
@@ -570,7 +631,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       `UPDATE contracts SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
       values
     );
-    return result.rows[0] as Contract;
+    return mapRowToCamel<Contract>(result.rows[0]);
   }
 
   async deleteContract(id: string, companyId: string): Promise<void> {
@@ -586,10 +647,10 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
   
   async getLicensesByCompany(companyId: string): Promise<License[]> {
     const result = await pool.query(
-      'SELECT * FROM licenses WHERE company_id = $1',
+      'SELECT * FROM licenses WHERE company_id = $1 ORDER BY created_at DESC',
       [companyId]
     );
-    return result.rows as License[];
+    return mapRowsToCamel<License>(result.rows);
   }
 
   async getLicenseById(id: string, companyId: string): Promise<License | undefined> {
@@ -597,23 +658,25 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       'SELECT * FROM licenses WHERE id = $1 AND company_id = $2',
       [id, companyId]
     );
-    return result.rows[0] as License | undefined;
+    return result.rows[0] ? mapRowToCamel<License>(result.rows[0]) : undefined;
   }
 
   async createLicense(license: InsertLicense): Promise<License> {
     const result = await pool.query(
       `INSERT INTO licenses (
         company_id, asset_id, name, vendor, license_key, license_type, max_users,
-        current_users, purchase_date, expiry_date, monthly_cost, annual_cost, status, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        current_users, purchase_date, expiry_date, monthly_cost, annual_cost,
+        billing_cycle, status, notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
       [
         license.companyId, license.assetId, license.name, license.vendor, license.licenseKey,
         license.licenseType, license.maxUsers, license.currentUsers, license.purchaseDate,
-        license.expiryDate, license.monthlyCost, license.annualCost, license.status, license.notes
+        license.expiryDate, license.monthlyCost, license.annualCost,
+        license.billingCycle ?? 'monthly', license.status, license.notes
       ]
     );
-    return result.rows[0] as License;
+    return mapRowToCamel<License>(result.rows[0]);
   }
 
   async updateLicense(id: string, license: Partial<InsertLicense>): Promise<License> {
@@ -637,7 +700,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       `UPDATE licenses SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
       values
     );
-    return result.rows[0] as License;
+    return mapRowToCamel<License>(result.rows[0]);
   }
 
   async deleteLicense(id: string, companyId: string): Promise<void> {
@@ -656,7 +719,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       'SELECT * FROM maintenance_records WHERE company_id = $1 ORDER BY created_at DESC',
       [companyId]
     );
-    return result.rows as MaintenanceRecord[];
+    return mapRowsToCamel<MaintenanceRecord>(result.rows);
   }
 
   async getMaintenanceRecordsByAsset(assetId: string, companyId: string): Promise<MaintenanceRecord[]> {
@@ -664,7 +727,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       'SELECT * FROM maintenance_records WHERE asset_id = $1 AND company_id = $2 ORDER BY created_at DESC',
       [assetId, companyId]
     );
-    return result.rows as MaintenanceRecord[];
+    return mapRowsToCamel<MaintenanceRecord>(result.rows);
   }
 
   async createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord> {
@@ -682,7 +745,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
         record.technician, record.partsReplaced, record.timeSpent, record.notes, record.attachments
       ]
     );
-    return result.rows[0] as MaintenanceRecord;
+    return mapRowToCamel<MaintenanceRecord>(result.rows[0]);
   }
 
   async updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord> {
@@ -706,7 +769,7 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       `UPDATE maintenance_records SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
       values
     );
-    return result.rows[0] as MaintenanceRecord;
+    return mapRowToCamel<MaintenanceRecord>(result.rows[0]);
   }
 
   // ==========================================================================
