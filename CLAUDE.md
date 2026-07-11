@@ -35,6 +35,20 @@ licencias (tabla `licenses`) en una sola vista. Las rutas viejas
 `/applications` y `/licenses` siguen montando el mismo componente `Subscriptions`
 (no romper). Futuro módulo padre planeado: Datos personales (LOPDP).
 
+**Vencimientos** (`/expirations`, ítem propio en el sidebar con badge): módulo de
+notificaciones. Los vencimientos se CALCULAN en tiempo real en
+`storage.getExpirations(companyId, userId, days)` con un UNION ALL de licencias
+(`expiry_date`), contratos (`end_date` y `renewal_date`), garantías de equipos
+(`warranty_expiry`) e infraestructura de apps (`domain/ssl/hosting/server_expiry`).
+No hay tabla de notificaciones; solo `notification_dismissals` guarda qué alertas
+descartó cada usuario (la `key` es determinística e incluye la fecha objetivo).
+Endpoints: `GET /api/notifications/:companyId?days=`,
+`GET /api/notifications/unread-count/:companyId`,
+`POST /api/notifications/:companyId/dismiss` (body `{key}`). La campana del
+`header.tsx` los consume (con fallback a la primera empresa si la página no pasa
+`selectedCompanyId`). Severidad: `expired` (<0d), `critical` (≤7d), `warning`
+(≤30d). Pendiente futuro: notificaciones por email (requiere SMTP).
+
 ## Estructura del repositorio
 
 ```
