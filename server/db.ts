@@ -16,3 +16,9 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10000,
   statement_timeout: 30000,
 });
+
+// Sin este listener, un error en un cliente idle (reinicio de Postgres,
+// timeout de red) emite 'error' sin manejar y tumba el proceso completo.
+pool.on("error", (err) => {
+  console.error("Error inesperado en cliente idle de PostgreSQL:", err.message);
+});

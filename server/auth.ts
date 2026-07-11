@@ -50,8 +50,8 @@ export function setupAuth(app: Express) {
     process.env.NODE_ENV === "production" &&
     jwtSecret === "dev-secret-change-in-production"
   ) {
-    console.warn(
-      "⚠️  WARNING: Usando JWT_SECRET por defecto en producción. Configure JWT_SECRET en variables de entorno."
+    throw new Error(
+      "JWT_SECRET debe estar definido en producción. Configúrelo en el archivo .env o en ecosystem.config.cjs."
     );
   }
   
