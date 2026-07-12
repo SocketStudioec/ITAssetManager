@@ -1,7 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { registerRedesignRoutes } from "./routes-redesign";
 import { serveStatic, log } from "./static";
 import { startNotificationScheduler } from "./scheduler";
+import { startBiweeklyScheduler } from "./biweekly-report";
+import { mountUploads } from "./uploads";
 
 const app = express();
 app.use(express.json());
@@ -49,6 +52,11 @@ process.on("uncaughtException", (err) => {
 
 (async () => {
   const server = await registerRoutes(app);
+  // Rediseño 2026-07: rutas nuevas (categorías, fotos, QR público, Excel,
+  // informes) y archivos subidos bajo /uploads. Deben registrarse ANTES del
+  // manejador de errores y del catch-all de vite/static.
+  registerRedesignRoutes(app);
+  mountUploads(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -83,6 +91,8 @@ process.on("uncaughtException", (err) => {
     // Scheduler de notificaciones por email (recordatorios de vencimiento).
     // Corre en segundo plano; sus errores nunca tumban el proceso.
     startNotificationScheduler();
+    // Informe quincenal (días 15 y 30) + recordatorios de renovación manual.
+    startBiweeklyScheduler();
   });
 
   // Apagado ordenado: PM2 envía SIGINT al hacer stop/reload.

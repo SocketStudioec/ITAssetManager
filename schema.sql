@@ -396,6 +396,109 @@ COMMENT ON TABLE maintenance_records IS 'Historial de mantenimiento de activos';
 COMMENT ON TABLE activity_log IS 'Log de auditoría de todas las acciones del sistema';
 
 -- ============================================================================
+-- REDISEÑO 2026-07 (migración 004)
+-- Categorías, fotos, código único, campos personalizados, depreciación,
+-- pago/motivo/renovación, contratos con archivo, líneas de mantenimiento,
+-- informe quincenal.
+-- ============================================================================
+
+-- Categorías de activos por empresa (depreciación línea recta, norma Ecuador:
+-- equipos de cómputo 3 años, maquinaria/equipos 10, vehículos 5)
+CREATE TABLE asset_categories (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  name VARCHAR NOT NULL,
+  depreciation_years INTEGER NOT NULL DEFAULT 3,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX idx_asset_categories_unique ON asset_categories(company_id, LOWER(name));
+CREATE INDEX idx_asset_categories_company ON asset_categories(company_id);
+
+-- Activos: categoría, código único (QR/enlace público), depreciación y
+-- campos de suscripción para assets tipo 'application'
+ALTER TABLE assets
+  ADD COLUMN category_id VARCHAR REFERENCES asset_categories(id) ON DELETE SET NULL,
+  ADD COLUMN asset_code VARCHAR,
+  ADD COLUMN purchase_cost DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN residual_value DECIMAL(12, 2) DEFAULT 0,
+  ADD COLUMN depreciation_years INTEGER,
+  ADD COLUMN billing_cycle VARCHAR,
+  ADD COLUMN provider VARCHAR,
+  ADD COLUMN payment_method VARCHAR,
+  ADD COLUMN card_name VARCHAR,
+  ADD COLUMN bank_name VARCHAR,
+  ADD COLUMN purpose TEXT,
+  ADD COLUMN renewal_type VARCHAR DEFAULT 'manual',
+  ADD COLUMN renewal_date TIMESTAMP;
+CREATE UNIQUE INDEX idx_assets_asset_code ON assets(asset_code);
+CREATE INDEX idx_assets_category_id ON assets(category_id);
+CREATE INDEX idx_assets_renewal_date ON assets(renewal_date);
+
+-- Fotos de activos (varias por activo; archivo físico bajo uploads/)
+CREATE TABLE asset_photos (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  asset_id VARCHAR NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  file_path VARCHAR NOT NULL,
+  original_name VARCHAR,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_asset_photos_asset ON asset_photos(asset_id);
+CREATE INDEX idx_asset_photos_company ON asset_photos(company_id);
+
+-- Campos personalizados nombre→valor por activo (estilo detalle de factura)
+CREATE TABLE asset_custom_fields (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  asset_id VARCHAR NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  field_name VARCHAR NOT NULL,
+  field_value TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_asset_custom_fields_asset ON asset_custom_fields(asset_id);
+CREATE INDEX idx_asset_custom_fields_company ON asset_custom_fields(company_id);
+
+-- Licencias: forma de pago, motivo y renovación
+ALTER TABLE licenses
+  ADD COLUMN payment_method VARCHAR,
+  ADD COLUMN card_name VARCHAR,
+  ADD COLUMN bank_name VARCHAR,
+  ADD COLUMN purpose TEXT,
+  ADD COLUMN renewal_type VARCHAR DEFAULT 'manual';
+
+-- Contratos: archivo y contactos de soporte
+ALTER TABLE contracts
+  ADD COLUMN contract_file VARCHAR,
+  ADD COLUMN support_contacts JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Líneas de mantenimiento tipo factura (piezas/servicio)
+CREATE TABLE maintenance_lines (
+  id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  company_id VARCHAR NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  maintenance_id VARCHAR NOT NULL REFERENCES maintenance_records(id) ON DELETE CASCADE,
+  description VARCHAR NOT NULL,
+  quantity DECIMAL(10, 2) NOT NULL DEFAULT 1,
+  unit_cost DECIMAL(12, 2) NOT NULL DEFAULT 0,
+  total DECIMAL(12, 2) NOT NULL DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_maintenance_lines_maintenance ON maintenance_lines(maintenance_id);
+CREATE INDEX idx_maintenance_lines_company ON maintenance_lines(company_id);
+
+-- Informe quincenal (días 15 y 30)
+ALTER TABLE company_notification_settings
+  ADD COLUMN biweekly_report_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN report_recipient_emails TEXT NOT NULL DEFAULT '';
+
+COMMENT ON TABLE asset_categories IS 'Categorías de activos por empresa con años de depreciación (norma Ecuador)';
+COMMENT ON TABLE asset_photos IS 'Fotos de activos, archivo físico en uploads/';
+COMMENT ON TABLE asset_custom_fields IS 'Campos personalizados nombre→valor por activo';
+COMMENT ON TABLE maintenance_lines IS 'Líneas de detalle de mantenimiento tipo factura';
+
+-- ============================================================================
 -- FIN DEL SCRIPT
 -- ============================================================================
 -- La base de datos está lista para usar

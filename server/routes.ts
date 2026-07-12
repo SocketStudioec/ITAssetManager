@@ -123,6 +123,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { sendEmail, parseRecipients } from "./email";
 import { setupAuth, isAuthenticated, passwordUtils, jwtUtils, setJwtCookie, clearJwtCookie } from "./auth";
+import { redesignStorage } from "./storage-redesign";
 import {
   insertAssetSchema,
   insertContractSchema,
@@ -758,11 +759,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // 4. Validar los datos combinados
       const validatedData = insertAssetSchema.parse(dataToValidate);
-      
+
+      // 4b. Código único: si el frontend no lo mandó (wizard viejo, imports),
+      // se genera aquí para que TODO activo tenga QR/enlace público.
+      if (!validatedData.assetCode) {
+        validatedData.assetCode = await redesignStorage.generateAssetCode(companyIdToUse);
+      }
+
       // 5. lógica para asignar el técnico
       const dataToInsert = {
         ...validatedData,
-        assignedTo: userId,
+        assignedTo: validatedData.assignedTo || userId,
       };
 
       const asset = await storage.createAsset(dataToInsert);

@@ -7,6 +7,7 @@ import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import AddAssetModal from "@/components/modals/add-asset-modal";
+import ImportExcelModal from "@/components/modals/import-excel-modal";
 import EditAssetModal from "@/components/modals/edit-asset-modal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ import {
   CalendarClock,
   DollarSign,
   Edit2,
+  FileSpreadsheet,
   Key,
   Laptop,
   Plus,
@@ -207,6 +209,7 @@ export default function Subscriptions() {
 
   const [showAddSelector, setShowAddSelector] = useState(false);
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedAssetForEdit, setSelectedAssetForEdit] = useState<any>(null);
 
   const [showLicenseModal, setShowLicenseModal] = useState(false);
@@ -585,8 +588,8 @@ export default function Subscriptions() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
-          title="Licencias y suscripciones"
-          subtitle="Aplicaciones, suscripciones SaaS y licencias de software"
+          title="Aplicaciones"
+          subtitle="Suscripciones de aplicaciones y licencias de software"
         />
 
         <main className="flex-1 overflow-y-auto bg-background">
@@ -686,7 +689,7 @@ export default function Subscriptions() {
             <Card className="border-border">
               <CardHeader>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <CardTitle>Licencias y suscripciones</CardTitle>
+                  <CardTitle>Aplicaciones</CardTitle>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                     <div className="relative">
@@ -703,7 +706,16 @@ export default function Subscriptions() {
                     </div>
 
                     <Button
-                      onClick={() => setShowAddSelector(true)}
+                      variant="outline"
+                      onClick={() => setShowImportModal(true)}
+                      disabled={!selectedCompanyId}
+                      data-testid="button-import-applications"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 mr-2" />
+                      Importar Excel
+                    </Button>
+                    <Button
+                      onClick={() => setShowAddAssetModal(true)}
                       disabled={!selectedCompanyId}
                       data-testid="button-add-subscription"
                     >
@@ -827,7 +839,7 @@ export default function Subscriptions() {
                                 : "Registra una suscripción SaaS o una licencia con clave para comenzar."}
                             </p>
                             <Button
-                              onClick={() => setShowAddSelector(true)}
+                              onClick={() => setShowAddAssetModal(true)}
                               disabled={!selectedCompanyId}
                               data-testid="button-add-first-subscription"
                             >
@@ -907,6 +919,14 @@ export default function Subscriptions() {
         onOpenChange={setShowAddAssetModal}
         companyId={selectedCompanyId}
         key={selectedCompanyId}
+      />
+
+      {/* Carga masiva desde Excel (plantilla + import) */}
+      <ImportExcelModal
+        open={showImportModal}
+        onOpenChange={setShowImportModal}
+        companyId={selectedCompanyId}
+        kind="applications"
       />
 
       {selectedAssetForEdit && (

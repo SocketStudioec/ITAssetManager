@@ -48,6 +48,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import ContractExtrasModal from "@/components/modals/contract-extras-modal";
 import {
   AlertTriangle,
   Calendar,
@@ -175,6 +176,8 @@ export default function Contracts() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<any>(null);
   const [contractToDelete, setContractToDelete] = useState<any>(null);
+  // Rediseño 2026-07: modal de documento del contrato + contactos de soporte
+  const [contractForExtras, setContractForExtras] = useState<any>(null);
   const [form, setForm] = useState<ContractFormState>(getEmptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -772,6 +775,15 @@ export default function Contracts() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
+                                    onClick={() => setContractForExtras(contract)}
+                                    aria-label={`Soporte y documento de ${contract.name}`}
+                                    data-testid={`button-extras-${contract.id}`}
+                                  >
+                                    <FileText className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
                                     onClick={() => openEditDialog(contract)}
                                     aria-label={`Editar ${contract.name}`}
                                     data-testid={`button-edit-${contract.id}`}
@@ -1299,6 +1311,16 @@ export default function Contracts() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Documento del contrato + contactos de soporte */}
+      <ContractExtrasModal
+        contract={contractForExtras}
+        companyId={selectedCompanyId}
+        open={!!contractForExtras}
+        onOpenChange={(open: boolean) => {
+          if (!open) setContractForExtras(null);
+        }}
+      />
     </div>
   );
 }

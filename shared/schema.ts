@@ -267,6 +267,21 @@ export const insertAssetSchema = z.object({
   sslExpiry: z.coerce.date().optional().nullable(),
   hostingExpiry: z.coerce.date().optional().nullable(),
   serverExpiry: z.coerce.date().optional().nullable(),
+  // Rediseño 2026-07: categoría, código único y depreciación (norma Ecuador)
+  categoryId: z.string().optional().nullable(),
+  assetCode: z.string().optional().nullable(),
+  purchaseCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  residualValue: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
+  depreciationYears: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.number().int().optional().nullable()),
+  // Suscripciones (assets tipo 'application'): recurrencia, proveedor, pago y motivo
+  billingCycle: z.enum(["monthly", "quarterly", "semiannual", "annual", "one_time"]).optional().nullable(),
+  provider: z.string().optional().nullable(),
+  paymentMethod: z.string().optional().nullable(),
+  cardName: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  purpose: z.string().optional().nullable(),
+  renewalType: z.enum(["automatic", "manual"]).optional().nullable(),
+  renewalDate: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.date().optional().nullable()),
 });
 
 // Contract schemas
@@ -304,9 +319,15 @@ export const insertLicenseSchema = z.object({
   expiryDate: z.preprocess((val) => (val === "" || val === null ? null : val), z.coerce.date().optional().nullable()),
   monthlyCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
   annualCost: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().optional()),
-  billingCycle: z.enum(["monthly", "annual", "one_time"]).optional(),
+  billingCycle: z.enum(["monthly", "quarterly", "semiannual", "annual", "one_time"]).optional(),
   status: z.enum(["active", "inactive", "maintenance", "deprecated", "disposed"]).optional(),
   notes: z.string().optional().nullable(),
+  // Rediseño 2026-07: forma de pago, motivo y tipo de renovación
+  paymentMethod: z.string().optional().nullable(),
+  cardName: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  purpose: z.string().optional().nullable(),
+  renewalType: z.enum(["automatic", "manual"]).optional().nullable(),
 });
 
 // Maintenance record schemas

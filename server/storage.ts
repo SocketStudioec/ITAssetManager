@@ -533,8 +533,12 @@ export class DatabaseStorage implements IStorage {
         company_id, name, type, description, serial_number, model, manufacturer,
         purchase_date, warranty_expiry, monthly_cost, annual_cost, status, location,
         assigned_to, notes, application_type, url, version, domain_cost, ssl_cost,
-        hosting_cost, server_cost, domain_expiry, ssl_expiry, hosting_expiry, server_expiry
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+        hosting_cost, server_cost, domain_expiry, ssl_expiry, hosting_expiry, server_expiry,
+        category_id, asset_code, purchase_cost, residual_value, depreciation_years,
+        billing_cycle, provider, payment_method, card_name, bank_name, purpose,
+        renewal_type, renewal_date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+        $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
       RETURNING *`,
       [
         asset.companyId, asset.name, asset.type, asset.description, asset.serialNumber,
@@ -542,7 +546,13 @@ export class DatabaseStorage implements IStorage {
         asset.monthlyCost, asset.annualCost, asset.status, asset.location,
         asset.assignedTo, asset.notes, asset.applicationType, asset.url, asset.version,
         asset.domainCost, asset.sslCost, asset.hostingCost, asset.serverCost,
-        asset.domainExpiry, asset.sslExpiry, asset.hostingExpiry, asset.serverExpiry
+        asset.domainExpiry, asset.sslExpiry, asset.hostingExpiry, asset.serverExpiry,
+        // Rediseño 2026-07
+        asset.categoryId ?? null, asset.assetCode ?? null, asset.purchaseCost ?? 0,
+        asset.residualValue ?? 0, asset.depreciationYears ?? null,
+        asset.billingCycle ?? null, asset.provider ?? null, asset.paymentMethod ?? null,
+        asset.cardName ?? null, asset.bankName ?? null, asset.purpose ?? null,
+        asset.renewalType ?? 'manual', asset.renewalDate ?? null
       ]
     );
     return mapRowToCamel<Asset>(result.rows[0]);
@@ -711,15 +721,20 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
       `INSERT INTO licenses (
         company_id, asset_id, name, vendor, license_key, license_type, max_users,
         current_users, purchase_date, expiry_date, monthly_cost, annual_cost,
-        billing_cycle, status, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        billing_cycle, status, notes,
+        payment_method, card_name, bank_name, purpose, renewal_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20)
       RETURNING *`,
       [
         license.companyId, license.assetId, license.name, license.vendor, license.licenseKey,
         license.licenseType, license.maxUsers, license.currentUsers ?? 0, license.purchaseDate,
         license.expiryDate, license.monthlyCost ?? 0, license.annualCost ?? 0,
         // status es NOT NULL: default explícito si no viene del form
-        license.billingCycle ?? 'monthly', license.status ?? 'active', license.notes
+        license.billingCycle ?? 'monthly', license.status ?? 'active', license.notes,
+        // Rediseño 2026-07: forma de pago, motivo y renovación
+        license.paymentMethod ?? null, license.cardName ?? null, license.bankName ?? null,
+        license.purpose ?? null, license.renewalType ?? 'manual'
       ]
     );
     return mapRowToCamel<License>(result.rows[0]);

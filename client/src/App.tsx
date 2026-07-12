@@ -17,6 +17,7 @@ import Expirations from "@/pages/expirations";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import AdminPanel from "@/pages/admin";
+import PublicAsset from "@/pages/public-asset";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -26,6 +27,8 @@ function Router() {
       {/* Public routes (always available) */}
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      {/* Ficha pública de activo (QR) — sin autenticación */}
+      <Route path="/p/asset/:code" component={PublicAsset} />
       
       {isLoading || !isAuthenticated ? (
         <>
