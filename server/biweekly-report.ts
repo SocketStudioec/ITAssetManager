@@ -4,8 +4,10 @@ import {
   sendEmail,
   parseRecipients,
   mailConfigured,
+  type EmailAttachment,
 } from "./email";
 import { ECUADOR_DEPRECIATION_NOTE } from "./depreciation";
+import { buildBiweeklyReportPdf } from "./report-pdf";
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STARTUP_DELAY_MS = 45 * 1000;
@@ -71,6 +73,13 @@ function buildEmptyRow(columns: number): string {
     </tr>`;
 }
 
+function appendPdfWarning(html: string): string {
+  return `${html}
+  <p style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:12px auto;color:#b45309;font-size:12px;text-align:center">
+    No se pudo generar el PDF adjunto en esta ocasion
+  </p>`;
+}
+
 export function isBiweeklyReportDay(date: Date): boolean {
   const day = date.getDate();
 
@@ -104,12 +113,11 @@ export function buildBiweeklyReportHtml(
             (application) => `
         <tr>
           <td style="padding:10px 12px;border-bottom:1px solid #eee"><strong>${esc(application.name)}</strong></td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee">${esc(application.purpose)}</td>
           <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(application.monthlyCost)}</td>
         </tr>`
           )
           .join("")
-      : buildEmptyRow(3);
+      : buildEmptyRow(2);
 
   const physicalRows =
     data.physicalAssets.length > 0
@@ -118,13 +126,11 @@ export function buildBiweeklyReportHtml(
             (asset) => `
         <tr>
           <td style="padding:10px 12px;border-bottom:1px solid #eee"><strong>${esc(asset.name)}</strong></td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee">${esc(asset.assetCode)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(asset.monthlyDepreciation)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(asset.maintenanceMonthly)}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(Number(asset.monthlyDepreciation) + Number(asset.maintenanceMonthly))}</td>
         </tr>`
           )
           .join("")
-      : buildEmptyRow(4);
+      : buildEmptyRow(2);
 
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#1f2937">
@@ -138,14 +144,13 @@ export function buildBiweeklyReportHtml(
         <thead>
           <tr style="text-align:left;background:#f8fafc">
             <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Nombre</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Motivo</th>
             <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Valor mensual</th>
           </tr>
         </thead>
         <tbody>
           ${applicationRows}
           <tr style="background:#f8fafc">
-            <td colspan="2" style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal aplicaciones y licencias</strong></td>
+            <td style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal aplicaciones y licencias</strong></td>
             <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.applicationsMonthly)}</strong></td>
           </tr>
         </tbody>
@@ -156,15 +161,13 @@ export function buildBiweeklyReportHtml(
         <thead>
           <tr style="text-align:left;background:#f8fafc">
             <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Equipo</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Codigo</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Depreciacion mensual</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Mantenimiento mensual</th>
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Valor mensual</th>
           </tr>
         </thead>
         <tbody>
           ${physicalRows}
           <tr style="background:#f8fafc">
-            <td colspan="3" style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal equipos fisicos</strong></td>
+            <td style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal equipos fisicos</strong></td>
             <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.physicalMonthly)}</strong></td>
           </tr>
         </tbody>
@@ -175,6 +178,9 @@ export function buildBiweeklyReportHtml(
         <div style="font-size:24px;font-weight:700;color:#0f172a">${formatMoney(data.totals.grandTotal)}</div>
       </div>
 
+      <p style="margin:14px 0 0;font-size:12px;line-height:1.5;color:#475569">
+        El detalle completo (motivos, codigos, depreciacion, mantenimientos y responsables) va en el PDF adjunto.
+      </p>
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:#6b7280">
         ${esc(ECUADOR_DEPRECIATION_NOTE)}
       </p>
@@ -287,10 +293,34 @@ export async function runBiweeklyReportCheck(
 
         const data =
           await redesignStorage.getBiweeklyReportData(companyId);
+        let html = buildBiweeklyReportHtml(companyName, data);
+        let attachments: EmailAttachment[] = [];
+
+        try {
+          const pdfBuffer = await buildBiweeklyReportPdf(
+            companyName,
+            data
+          );
+          attachments = [
+            {
+              filename: `informe-tecnologia-${dateKey(now)}.pdf`,
+              contentBase64: pdfBuffer.toString("base64"),
+              contentType: "application/pdf",
+            },
+          ];
+        } catch (error) {
+          console.error(
+            `[biweekly] ${companyName}: no se pudo generar el PDF adjunto:`,
+            error
+          );
+          html = appendPdfWarning(html);
+        }
+
         const result = await sendEmail(
           recipients,
           `Informe quincenal de tecnologia — ${companyName}`,
-          buildBiweeklyReportHtml(companyName, data)
+          html,
+          attachments
         );
 
         if (result.ok) {
@@ -355,10 +385,34 @@ export async function sendBiweeklyReportNow(
       redesignStorage.getBiweeklyReportData(companyId),
     ]);
 
+    let html = buildBiweeklyReportHtml(companyName, data);
+    let attachments: EmailAttachment[] = [];
+
+    try {
+      const pdfBuffer = await buildBiweeklyReportPdf(
+        companyName,
+        data
+      );
+      attachments = [
+        {
+          filename: `informe-tecnologia-${dateKey(new Date())}.pdf`,
+          contentBase64: pdfBuffer.toString("base64"),
+          contentType: "application/pdf",
+        },
+      ];
+    } catch (error) {
+      console.error(
+        `[biweekly] No se pudo generar el PDF adjunto para ${companyId}:`,
+        error
+      );
+      html = appendPdfWarning(html);
+    }
+
     return await sendEmail(
       recipients,
       `Informe quincenal de tecnologia — ${companyName}`,
-      buildBiweeklyReportHtml(companyName, data)
+      html,
+      attachments
     );
   } catch (error) {
     console.error(

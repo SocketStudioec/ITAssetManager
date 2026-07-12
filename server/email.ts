@@ -29,6 +29,12 @@ export interface SendEmailResult {
   message: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  contentBase64: string;
+  contentType: string;
+}
+
 /** True si hay URL, usuario y contraseña para la API de correo. */
 export function mailConfigured(): boolean {
   return Boolean(MAIL_API_URL && MAIL_API_USER && MAIL_API_PASSWORD);
@@ -56,7 +62,8 @@ export function parseRecipients(texto: string | null | undefined): string[] {
 export async function sendEmail(
   destinatarios: string[],
   asunto: string,
-  html: string
+  html: string,
+  attachments: EmailAttachment[] = []
 ): Promise<SendEmailResult> {
   if (!mailConfigured()) {
     return { ok: false, message: "La API de correo no está configurada (MAIL_API_*)." };
@@ -70,7 +77,7 @@ export async function sendEmail(
     from: MAIL_FROM,
     subject: asunto,
     html,
-    attachments: [] as unknown[],
+    attachments,
   };
 
   const auth = Buffer.from(`${MAIL_API_USER}:${MAIL_API_PASSWORD}`).toString("base64");

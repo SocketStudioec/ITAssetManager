@@ -32,6 +32,7 @@ interface ReportApplication {
 interface ReportPhysicalAsset {
   name: string;
   assetCode: string;
+  assignedTo: string;
   monthlyDepreciation: number;
   maintenanceMonthly: number;
 }
@@ -873,12 +874,20 @@ export const redesignStorage = {
            a.id,
            a.name,
            a.asset_code,
+           -- assigned_to puede guardar el id del usuario creador: resolver a nombre
+           COALESCE(
+             NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''),
+             a.assigned_to,
+             ''
+           ) AS assigned_to,
            a.purchase_cost,
            a.residual_value,
            a.purchase_date,
            COALESCE(a.depreciation_years, ac.depreciation_years, 3)
              AS depreciation_years
          FROM assets a
+         LEFT JOIN users u
+           ON u.id = a.assigned_to
          LEFT JOIN asset_categories ac
            ON ac.id = a.category_id
           AND ac.company_id = $1
@@ -962,6 +971,7 @@ export const redesignStorage = {
         return {
           name: String(row.name ?? ""),
           assetCode: String(row.asset_code ?? ""),
+          assignedTo: String(row.assigned_to ?? ""),
           monthlyDepreciation: depreciation.fullyDepreciated
             ? 0
             : depreciation.monthlyDepreciation,
