@@ -33,6 +33,14 @@ import {
   Package
 } from "lucide-react";
 
+// Si el costo es anual (monthlyCost en 0 pero annualCost > 0), se prorratea entre
+// 12 para que el gasto siga apareciendo en los informes mensuales.
+function getMonthlyEquivalent(item: any) {
+  const monthlyCost = Number(item.monthlyCost || 0);
+  if (monthlyCost > 0) return monthlyCost;
+  return Number(item.annualCost || 0) / 12;
+}
+
 export default function Reports() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
@@ -135,25 +143,25 @@ export default function Reports() {
     {
       category: "Equipos Físicos",
       count: assets.filter((a: any) => a.type === "physical").length,
-      cost: assets.filter((a: any) => a.type === "physical").reduce((sum: number, a: any) => sum + Number(a.monthlyCost || 0), 0),
+      cost: assets.filter((a: any) => a.type === "physical").reduce((sum: number, a: any) => sum + getMonthlyEquivalent(a), 0),
       status: "Activo"
     },
     {
       category: "Aplicaciones",
       count: assets.filter((a: any) => a.type === "application").length,
-      cost: assets.filter((a: any) => a.type === "application").reduce((sum: number, a: any) => sum + Number(a.monthlyCost || 0), 0),
+      cost: assets.filter((a: any) => a.type === "application").reduce((sum: number, a: any) => sum + getMonthlyEquivalent(a), 0),
       status: "Activo"
     },
     {
       category: "Licencias",
       count: licenses.length,
-      cost: licenses.reduce((sum: number, l: any) => sum + Number(l.monthlyCost || 0), 0),
+      cost: licenses.reduce((sum: number, l: any) => sum + getMonthlyEquivalent(l), 0),
       status: "Activo"
     },
     {
       category: "Contratos",
       count: contracts.length,
-      cost: contracts.reduce((sum: number, c: any) => sum + Number(c.monthlyCost || 0), 0),
+      cost: contracts.reduce((sum: number, c: any) => sum + getMonthlyEquivalent(c), 0),
       status: "Activo"
     }
   ];

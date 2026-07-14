@@ -876,6 +876,20 @@ app.put('/api/assets/:id', isAuthenticated, async (req: any, res) => {
       ssl_expiry: validatedData.sslExpiry,
       hosting_expiry: validatedData.hostingExpiry,
       server_expiry: validatedData.serverExpiry,
+      // Rediseño 2026-07: categoría, depreciación, recurrencia y forma de pago
+      // (antes se perdían en la edición aunque insertAssetSchema ya los validaba)
+      category_id: validatedData.categoryId,
+      purchase_cost: validatedData.purchaseCost,
+      residual_value: validatedData.residualValue,
+      depreciation_years: validatedData.depreciationYears,
+      billing_cycle: validatedData.billingCycle,
+      provider: validatedData.provider,
+      payment_method: validatedData.paymentMethod,
+      card_name: validatedData.cardName,
+      bank_name: validatedData.bankName,
+      purpose: validatedData.purpose,
+      renewal_type: validatedData.renewalType,
+      renewal_date: validatedData.renewalDate,
     };
     
     // Actualizar el activo

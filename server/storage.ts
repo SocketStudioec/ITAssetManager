@@ -848,22 +848,20 @@ async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset> {
     hardwareCosts: number;
     contractCosts: number;
   }> {
+    // Un item con pago anual (monthly_cost = 0, annual_cost > 0) debe prorratearse
+    // entre 12 para que aparezca en el total mensual; si no, desaparece de los informes.
+    // Subqueries independientes (no JOINs) para evitar el producto cartesiano entre
+    // assets/licenses/contracts/maintenance_records que multiplicaba las sumas.
     const result = await pool.query(
-      `SELECT 
-        COALESCE(SUM(a.monthly_cost), 0) as asset_monthly,
-        COALESCE(SUM(a.annual_cost), 0) as asset_annual,
-        COALESCE(SUM(l.monthly_cost), 0) as license_monthly,
-        COALESCE(SUM(l.annual_cost), 0) as license_annual,
-        COALESCE(SUM(c.monthly_cost), 0) as contract_monthly,
-        COALESCE(SUM(c.annual_cost), 0) as contract_annual,
-        COALESCE(SUM(m.cost), 0) as maintenance_total
-      FROM companies comp
-      LEFT JOIN assets a ON a.company_id = comp.id
-      LEFT JOIN licenses l ON l.company_id = comp.id
-      LEFT JOIN contracts c ON c.company_id = comp.id
-      LEFT JOIN maintenance_records m ON m.company_id = comp.id
-      WHERE comp.id = $1
-      GROUP BY comp.id`,
+      `SELECT
+        (SELECT COALESCE(SUM(CASE WHEN monthly_cost > 0 THEN monthly_cost ELSE COALESCE(annual_cost, 0) / 12 END), 0)
+           FROM assets WHERE company_id = $1) as asset_monthly,
+        (SELECT COALESCE(SUM(CASE WHEN monthly_cost > 0 THEN monthly_cost ELSE COALESCE(annual_cost, 0) / 12 END), 0)
+           FROM licenses WHERE company_id = $1) as license_monthly,
+        (SELECT COALESCE(SUM(CASE WHEN monthly_cost > 0 THEN monthly_cost ELSE COALESCE(annual_cost, 0) / 12 END), 0)
+           FROM contracts WHERE company_id = $1) as contract_monthly,
+        (SELECT COALESCE(SUM(cost), 0)
+           FROM maintenance_records WHERE company_id = $1) as maintenance_total`,
       [companyId]
     );
 

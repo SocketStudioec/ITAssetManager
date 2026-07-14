@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertAssetSchema } from "@shared/schema";
@@ -24,6 +24,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
 import { z } from "zod";
 
 // Crear schema para edición que incluya todos los campos
@@ -38,9 +40,57 @@ interface EditAssetModalProps {
   companyId: string;
 }
 
+interface Category {
+  id: string | number;
+  name: string;
+  depreciationYears?: number | null;
+  depreciation_years?: number | null;
+}
+
+function normalizeCategories(
+  response: Category[] | { categories?: Category[] } | undefined,
+) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response?.categories ?? [];
+}
+
+function roundCurrency(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function getCycleDivisor(cycle: string | null | undefined) {
+  switch (cycle) {
+    case "quarterly":
+      return 3;
+    case "semiannual":
+      return 6;
+    case "annual":
+      return 12;
+    default:
+      return 1;
+  }
+}
+
+// El costo por ciclo (lo que realmente paga cada vez) se reconstruye a partir
+// de monthly_cost/annual_cost + billing_cycle guardados, igual que al crear.
+function getCostPerCycle(asset: any) {
+  const billingCycle = asset?.billing_cycle || "monthly";
+  const monthlyCost = Number(asset?.monthly_cost || 0);
+  const annualCost = Number(asset?.annual_cost || 0);
+
+  if (billingCycle === "annual") {
+    return annualCost || monthlyCost * 12;
+  }
+
+  return roundCurrency(monthlyCost * getCycleDivisor(billingCycle));
+}
+
 export default function EditAssetModal({ open, onOpenChange, asset, companyId }: EditAssetModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [costInput, setCostInput] = useState("0");
 
   const form = useForm<z.infer<typeof editAssetSchema>>({
     resolver: zodResolver(editAssetSchema),
@@ -52,8 +102,8 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
       serialNumber: "",
       model: "",
       manufacturer: "",
-      monthlyCost: undefined, 
-      annualCost: undefined, 
+      monthlyCost: undefined,
+      annualCost: undefined,
       status: "active" as const,
       location: "",
       assignedTo: "",
@@ -61,16 +111,32 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
       applicationType: "saas" as const,
       url: "",
       version: "",
-      domainCost: undefined,  
-      sslCost: undefined,     
-      hostingCost: undefined, 
-      serverCost: undefined,  
-      domainExpiry: undefined,
-      sslExpiry: undefined,
-      hostingExpiry: undefined,
-      serverExpiry: undefined,
+      categoryId: "",
+      purchaseCost: undefined,
+      residualValue: undefined,
+      depreciationYears: undefined,
+      warrantyExpiry: undefined,
+      billingCycle: "monthly" as const,
+      provider: "",
+      paymentMethod: "transfer",
+      cardName: "",
+      bankName: "",
+      purpose: "",
+      renewalType: "manual" as const,
+      renewalDate: undefined,
     },
   });
+
+  const selectedType = form.watch("type");
+  const billingCycle = form.watch("billingCycle");
+  const paymentMethod = form.watch("paymentMethod");
+  const renewalType = form.watch("renewalType");
+
+  const categoriesQuery = useQuery<Category[] | { categories?: Category[] }>({
+    queryKey: ["/api/categories", companyId],
+    enabled: open && selectedType === "physical" && Boolean(companyId),
+  });
+  const categories = normalizeCategories(categoriesQuery.data);
 
   // Cargar datos del activo cuando se abre el modal
   useEffect(() => {
@@ -83,8 +149,8 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         serialNumber: asset.serial_number || "",
         model: asset.model || "",
         manufacturer: asset.manufacturer || "",
-        monthlyCost: asset.monthly_cost ? Number(asset.monthly_cost) : undefined, 
-        annualCost: asset.annual_cost ? Number(asset.annual_cost) : undefined,   
+        monthlyCost: asset.monthly_cost ? Number(asset.monthly_cost) : undefined,
+        annualCost: asset.annual_cost ? Number(asset.annual_cost) : undefined,
         status: asset.status || "active",
         location: asset.location || "",
         assignedTo: asset.assigned_to || "",
@@ -92,28 +158,43 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         applicationType: asset.application_type || "saas",
         url: asset.url || "",
         version: asset.version || "",
-        domainCost: asset.domain_cost ? Number(asset.domain_cost) : undefined,   
-        sslCost: asset.ssl_cost ? Number(asset.ssl_cost) : undefined,           
-        hostingCost: asset.hosting_cost ? Number(asset.hosting_cost) : undefined, 
-        serverCost: asset.server_cost ? Number(asset.server_cost) : undefined,   
-        domainExpiry: asset.domain_expiry ? new Date(asset.domain_expiry) : undefined,
-        sslExpiry: asset.ssl_expiry ? new Date(asset.ssl_expiry) : undefined,
-        hostingExpiry: asset.hosting_expiry ? new Date(asset.hosting_expiry) : undefined,
-        serverExpiry: asset.server_expiry ? new Date(asset.server_expiry) : undefined,
+        categoryId: asset.category_id ? String(asset.category_id) : "",
+        purchaseCost: asset.purchase_cost ? Number(asset.purchase_cost) : undefined,
+        residualValue: asset.residual_value ? Number(asset.residual_value) : undefined,
+        depreciationYears: asset.depreciation_years ? Number(asset.depreciation_years) : undefined,
+        warrantyExpiry: asset.warranty_expiry ? new Date(asset.warranty_expiry) : undefined,
+        billingCycle: asset.billing_cycle || "monthly",
+        provider: asset.provider || asset.manufacturer || "",
+        paymentMethod: asset.payment_method || "transfer",
+        cardName: asset.card_name || "",
+        bankName: asset.bank_name || "",
+        purpose: asset.purpose || "",
+        renewalType: asset.renewal_type || "manual",
+        renewalDate: asset.renewal_date ? new Date(asset.renewal_date) : undefined,
       });
+      setCostInput(String(getCostPerCycle(asset) || ""));
     }
   }, [open, asset, companyId, form]);
 
-  const selectedType = form.watch("type");
+  const purchaseCostWatch = Number(form.watch("purchaseCost")) || 0;
+  const residualValueWatch = Number(form.watch("residualValue")) || 0;
+  const depreciationYearsWatch = Number(form.watch("depreciationYears"));
+  const monthlyDepreciation =
+    purchaseCostWatch > 0 &&
+    Number.isInteger(depreciationYearsWatch) &&
+    depreciationYearsWatch > 0
+      ? Math.max(purchaseCostWatch - residualValueWatch, 0) / (depreciationYearsWatch * 12)
+      : null;
+
+  const costInputNumber = Number(costInput) || 0;
+  const monthlyEquivalent = roundCurrency(costInputNumber / getCycleDivisor(billingCycle));
 
   const updateAssetMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editAssetSchema>) => {
       if (!data.companyId) {
         throw new Error("El ID de la compañía es obligatorio.");
       }
-      
-      console.log('Datos del formulario para actualizar:', data);
-      
+
       const transformedData = {
         companyId: data.companyId,
         name: data.name,
@@ -122,8 +203,8 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         serial_number: data.serialNumber || null,
         model: data.model || null,
         manufacturer: data.manufacturer || null,
-        monthly_cost: data.monthlyCost,      
-        annual_cost: data.annualCost,        
+        monthly_cost: data.monthlyCost,
+        annual_cost: data.annualCost,
         status: data.status,
         location: data.location || null,
         assigned_to: data.assignedTo || null,
@@ -131,18 +212,21 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         application_type: data.applicationType || null,
         url: data.url || null,
         version: data.version || null,
-        domain_cost: data.domainCost,        
-        ssl_cost: data.sslCost,              
-        hosting_cost: data.hostingCost,      
-        server_cost: data.serverCost,        
-        domain_expiry: data.domainExpiry || null,
-        ssl_expiry: data.sslExpiry || null,
-        hosting_expiry: data.hostingExpiry || null,
-        server_expiry: data.serverExpiry || null,
+        category_id: data.categoryId || null,
+        purchase_cost: data.purchaseCost,
+        residual_value: data.residualValue,
+        depreciation_years: data.depreciationYears,
+        warranty_expiry: data.warrantyExpiry || null,
+        billing_cycle: data.type === "application" ? data.billingCycle : null,
+        provider: data.type === "application" ? data.provider || null : null,
+        payment_method: data.type === "application" ? data.paymentMethod || null : null,
+        card_name: data.type === "application" && data.paymentMethod === "card" ? data.cardName || null : null,
+        bank_name: data.type === "application" && data.paymentMethod === "card" ? data.bankName || null : null,
+        purpose: data.type === "application" ? data.purpose || null : null,
+        renewal_type: data.type === "application" ? data.renewalType || null : null,
+        renewal_date: data.type === "application" ? data.renewalDate || null : null,
       };
-      
-      console.log('Datos transformados:', transformedData);
-      
+
       const response = await apiRequest("PUT", `/api/assets/${asset.id}`, transformedData);
       return response;
     },
@@ -157,8 +241,7 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
     },
     onError: (error: any) => {
       console.error("Error updating asset:", error);
-      console.error("Error response:", error.response?.data);
-      
+
       if (isUnauthorizedError(error as Error)) {
         toast({
           title: "No autorizado",
@@ -170,9 +253,9 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         }, 500);
         return;
       }
-      
+
       const errorMessage = error.response?.data?.message || error.message || "Error al actualizar el activo.";
-      
+
       toast({
         title: "Error",
         description: errorMessage,
@@ -182,7 +265,12 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
   });
 
   const onSubmit = (data: z.infer<typeof editAssetSchema>) => {
-    console.log('Datos del formulario:', data);
+    if (data.type === "application") {
+      const divisor = getCycleDivisor(data.billingCycle);
+      data.monthlyCost = roundCurrency(costInputNumber / divisor);
+      data.annualCost = data.billingCycle === "annual" ? roundCurrency(costInputNumber) : 0;
+    }
+
     updateAssetMutation.mutate(data);
   };
 
@@ -198,7 +286,7 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
         <DialogHeader>
           <DialogTitle>Editar Activo: {asset?.name}</DialogTitle>
         </DialogHeader>
-        
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -207,29 +295,8 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Tipo de Activo</FormLabel>
-                  <Select 
-                    onValueChange={(value) => {
-                      field.onChange(value);
-                      if (value !== "application") {
-                        form.setValue("applicationType", "saas" as const);
-                        form.setValue("url", "");
-                        form.setValue("version", "");
-                        form.setValue("domainCost", undefined);
-                        form.setValue("sslCost", undefined);
-                        form.setValue("hostingCost", undefined);
-                        form.setValue("serverCost", undefined);
-                        form.setValue("domainExpiry", undefined);
-                        form.setValue("sslExpiry", undefined);
-                        form.setValue("hostingExpiry", undefined);
-                        form.setValue("serverExpiry", undefined);
-                      }
-                      if (value !== "physical") {
-                        form.setValue("serialNumber", "");
-                        form.setValue("model", "");
-                        form.setValue("manufacturer", "");
-                        form.setValue("location", "");
-                      }
-                    }} 
+                  <Select
+                    onValueChange={field.onChange}
                     defaultValue={field.value}
                     disabled={true}
                   >
@@ -280,70 +347,191 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
 
             {/* Campos para equipos físicos */}
             {selectedType === "physical" && (
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="serialNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Número de Serie</FormLabel>
-                      <FormControl>
-                        <Input placeholder="SN-123456" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <div className="space-y-4 p-4 bg-muted/30 rounded-lg">
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="serialNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Número de Serie</FormLabel>
+                        <FormControl>
+                          <Input placeholder="SN-123456" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="manufacturer"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Fabricante</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Dell, HP, Lenovo..." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="manufacturer"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Fabricante</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Dell, HP, Lenovo..." {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="model"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Modelo</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Latitude 5520" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="model"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Modelo</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Latitude 5520" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="location"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Ubicación</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Oficina, Bodega..." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="location"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Ubicación</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Oficina, Bodega..." {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="categoryId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Categoría</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value ?? undefined}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecciona una categoría" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {categories.map((category) => (
+                              <SelectItem key={String(category.id)} value={String(category.id)}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="warrantyExpiry"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Garantía hasta</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            value={field.value ? new Date(field.value).toISOString().split("T")[0] : ""}
+                            onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <Separator />
+                <h5 className="font-medium text-sm text-muted-foreground">Compra y depreciación</h5>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="purchaseCost"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Costo de compra $</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            {...field}
+                            value={field.value === undefined ? "" : field.value}
+                            onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="residualValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Valor residual $</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            {...field}
+                            value={field.value === undefined ? "" : field.value}
+                            onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="depreciationYears"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Años de depreciación</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            {...field}
+                            value={field.value === undefined || field.value === null ? "" : field.value}
+                            onChange={(e) => field.onChange(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {monthlyDepreciation !== null && (
+                  <p className="text-sm text-muted-foreground">
+                    Depreciación mensual estimada: <span className="font-medium text-foreground">${monthlyDepreciation.toFixed(2)}</span>
+                  </p>
+                )}
               </div>
             )}
 
-            {/* Campos para aplicaciones */}
+            {/* Campos para aplicaciones (suscripciones) — igual al flujo de "Agregar" */}
             {selectedType === "application" && (
               <div className="space-y-4 p-4 bg-muted/30 rounded-lg">
                 <h4 className="font-medium text-sm">Configuración de Aplicación</h4>
-                
+
                 <FormField
                   control={form.control}
                   name="applicationType"
@@ -369,6 +557,20 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
+                    name="provider"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Proveedor</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Microsoft" {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="url"
                     render={({ field }) => (
                       <FormItem>
@@ -380,195 +582,180 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
                       </FormItem>
                     )}
                   />
+                </div>
 
+                <Separator />
+                <h5 className="font-medium text-sm text-muted-foreground">Recurrencia y costo</h5>
+
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name="version"
+                    name="billingCycle"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Versión</FormLabel>
-                        <FormControl>
-                          <Input placeholder="v1.0.0" {...field} />
-                        </FormControl>
+                        <FormLabel>Ciclo de facturación</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value ?? "monthly"}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar ciclo..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="monthly">Mensual</SelectItem>
+                            <SelectItem value="quarterly">Trimestral</SelectItem>
+                            <SelectItem value="semiannual">Semestral</SelectItem>
+                            <SelectItem value="annual">Anual</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
+                  <FormItem>
+                    <FormLabel>Costo del ciclo $</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={costInput}
+                        onChange={(e) => setCostInput(e.target.value)}
+                      />
+                    </FormControl>
+                    <p className="text-sm text-muted-foreground tabular-nums">
+                      Equivale a ${monthlyEquivalent.toFixed(2)} mensuales
+                    </p>
+                  </FormItem>
                 </div>
 
-                {/* Costos de infraestructura para aplicaciones */}
-                <div className="space-y-4">
-                  <h5 className="font-medium text-sm text-muted-foreground">Costos de Infraestructura (Mensual)</h5>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div className="text-muted-foreground font-medium">Servicio</div>
-                    <div className="text-muted-foreground font-medium">Costo Mensual</div>
-                    <div className="text-muted-foreground font-medium">Fecha de Caducidad</div>
-                    
-                    {/* Dominio */}
-                    <div className="flex items-center">Dominio</div>
+                <FormField
+                  control={form.control}
+                  name="renewalDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fecha de próxima renovación</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ? new Date(field.value).toISOString().split("T")[0] : ""}
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Separator />
+                <h5 className="font-medium text-sm text-muted-foreground">Forma de pago y motivo</h5>
+
+                <FormField
+                  control={form.control}
+                  name="paymentMethod"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Método de pago</FormLabel>
+                      <Select value={field.value ?? "transfer"} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar método..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="card">Tarjeta</SelectItem>
+                          <SelectItem value="transfer">Transferencia</SelectItem>
+                          <SelectItem value="cash">Efectivo</SelectItem>
+                          <SelectItem value="other">Otro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {paymentMethod === "card" && (
+                  <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
-                      name="domainCost"
+                      name="cardName"
                       render={({ field }) => (
                         <FormItem>
+                          <FormLabel>Nombre de la tarjeta</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00" 
-                              {...field}
-                              value={field.value === undefined ? '' : field.value}
-                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="domainExpiry"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="date"
-                              {...field}
-                              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                              onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                              className="h-8"
-                            />
+                            <Input placeholder="Visa empresarial" {...field} value={field.value ?? ""} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
 
-                    {/* SSL */}
-                    <div className="flex items-center">SSL</div>
                     <FormField
                       control={form.control}
-                      name="sslCost"
+                      name="bankName"
                       render={({ field }) => (
                         <FormItem>
+                          <FormLabel>Banco</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00" 
-                              {...field}
-                              value={field.value === undefined ? '' : field.value}
-                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="sslExpiry"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="date"
-                              {...field}
-                              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                              onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Hosting */}
-                    <div className="flex items-center">Hosting</div>
-                    <FormField
-                      control={form.control}
-                      name="hostingCost"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00" 
-                              {...field}
-                              value={field.value === undefined ? '' : field.value}
-                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="hostingExpiry"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="date"
-                              {...field}
-                              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                              onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Servidores */}
-                    <div className="flex items-center">Servidores</div>
-                    <FormField
-                      control={form.control}
-                      name="serverCost"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00" 
-                              {...field}
-                              value={field.value === undefined ? '' : field.value}
-                              onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                              className="h-8"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="serverExpiry"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input 
-                              type="date"
-                              {...field}
-                              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                              onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                              className="h-8"
-                            />
+                            <Input placeholder="Banco Pichincha" {...field} value={field.value ?? ""} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   </div>
-                </div>
+                )}
+
+                <FormField
+                  control={form.control}
+                  name="purpose"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>¿Por qué la empresa paga esto?</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          className="min-h-[90px] resize-y"
+                          placeholder="Describe el motivo de negocio"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="renewalType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Renovación</FormLabel>
+                      <FormControl>
+                        <RadioGroup
+                          className="flex min-h-10 flex-wrap items-center gap-6"
+                          value={field.value ?? "manual"}
+                          onValueChange={field.onChange}
+                        >
+                          <div className="flex items-center gap-2">
+                            <RadioGroupItem value="automatic" id="edit-renewal-automatic" />
+                            <label className="cursor-pointer text-sm font-medium" htmlFor="edit-renewal-automatic">
+                              Automática
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <RadioGroupItem value="manual" id="edit-renewal-manual" />
+                            <label className="cursor-pointer text-sm font-medium" htmlFor="edit-renewal-manual">
+                              Manual
+                            </label>
+                          </div>
+                        </RadioGroup>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
             )}
 
@@ -597,50 +784,53 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
               )}
             />
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* COSTOS MENSUALES/ANUALES  */}
-              <FormField
-                control={form.control}
-                name="monthlyCost"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Costo Mensual</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00" 
-                        {...field}
-                        value={field.value === undefined ? '' : field.value}
-                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            {/* Los equipos físicos usan costo de compra + depreciación (arriba);
+                aplicaciones calculan el mensual/anual desde el costo del ciclo. */}
+            {selectedType !== "physical" && selectedType !== "application" && (
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="monthlyCost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Costo Mensual</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          {...field}
+                          value={field.value === undefined ? "" : field.value}
+                          onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="annualCost"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Costo Anual</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00" 
-                        {...field}
-                        value={field.value === undefined ? '' : field.value}
-                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                <FormField
+                  control={form.control}
+                  name="annualCost"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Costo Anual</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          {...field}
+                          value={field.value === undefined ? "" : field.value}
+                          onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
 
             <FormField
               control={form.control}
@@ -671,16 +861,16 @@ export default function EditAssetModal({ open, onOpenChange, asset, companyId }:
             />
 
             <div className="flex justify-end space-x-2 pt-4">
-              <Button 
-                type="button" 
-                variant="outline" 
+              <Button
+                type="button"
+                variant="outline"
                 onClick={handleClose}
                 disabled={updateAssetMutation.isPending}
               >
                 Cancelar
               </Button>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 disabled={updateAssetMutation.isPending}
               >
                 {updateAssetMutation.isPending ? "Actualizando..." : "Actualizar"}

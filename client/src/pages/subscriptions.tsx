@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
 import {
   AlertTriangle,
   CalendarClock,
@@ -72,8 +74,14 @@ type LicenseFormState = {
   expiryDate: string;
   assetId: string;
   licenseKey: string;
+  licenseType: string;
   maxUsers: string;
   notes: string;
+  paymentMethod: "card" | "transfer" | "cash" | "other";
+  cardName: string;
+  bankName: string;
+  purpose: string;
+  renewalType: "automatic" | "manual";
 };
 
 type UnifiedItem = {
@@ -96,8 +104,14 @@ const EMPTY_LICENSE_FORM: LicenseFormState = {
   expiryDate: "",
   assetId: "none",
   licenseKey: "",
+  licenseType: "",
   maxUsers: "",
   notes: "",
+  paymentMethod: "transfer",
+  cardName: "",
+  bankName: "",
+  purpose: "",
+  renewalType: "manual",
 };
 
 const DAY_IN_MS = 1000 * 60 * 60 * 24;
@@ -417,11 +431,17 @@ export default function Subscriptions() {
       expiryDate: formatDateInput(license.expiryDate),
       assetId: license.assetId ? String(license.assetId) : "none",
       licenseKey: license.licenseKey || "",
+      licenseType: license.licenseType || "",
       maxUsers:
         license.maxUsers === null || license.maxUsers === undefined
           ? ""
           : String(license.maxUsers),
       notes: license.notes || "",
+      paymentMethod: license.paymentMethod || "transfer",
+      cardName: license.cardName || "",
+      bankName: license.bankName || "",
+      purpose: license.purpose || "",
+      renewalType: license.renewalType || "manual",
     });
     setShowLicenseModal(true);
   };
@@ -484,10 +504,22 @@ export default function Subscriptions() {
           ? null
           : licenseForm.assetId,
       licenseKey: licenseForm.licenseKey.trim() || null,
+      licenseType: licenseForm.licenseType.trim() || null,
       maxUsers: licenseForm.maxUsers
         ? Number(licenseForm.maxUsers)
         : null,
       notes: licenseForm.notes.trim() || null,
+      paymentMethod: licenseForm.paymentMethod,
+      cardName:
+        licenseForm.paymentMethod === "card"
+          ? licenseForm.cardName.trim() || null
+          : null,
+      bankName:
+        licenseForm.paymentMethod === "card"
+          ? licenseForm.bankName.trim() || null
+          : null,
+      purpose: licenseForm.purpose.trim() || null,
+      renewalType: licenseForm.renewalType,
     };
 
     saveLicenseMutation.mutate({
@@ -1113,25 +1145,152 @@ export default function Subscriptions() {
               />
             </div>
 
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="license-type">Tipo de licencia</Label>
+                <Input
+                  id="license-type"
+                  value={licenseForm.licenseType}
+                  onChange={(event) =>
+                    setLicenseForm((current) => ({
+                      ...current,
+                      licenseType: event.target.value,
+                    }))
+                  }
+                  placeholder="Empresa, individual, perpetua..."
+                  data-testid="input-license-type"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="license-max-users">
+                  Usuarios máximos
+                </Label>
+                <Input
+                  id="license-max-users"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={licenseForm.maxUsers}
+                  onChange={(event) =>
+                    setLicenseForm((current) => ({
+                      ...current,
+                      maxUsers: event.target.value,
+                    }))
+                  }
+                  placeholder="Ej. 25"
+                  data-testid="input-license-max-users"
+                />
+              </div>
+            </div>
+
+            <Separator />
+            <h3 className="text-sm font-medium">Forma de pago y motivo</h3>
+
             <div className="grid gap-2">
-              <Label htmlFor="license-max-users">
-                Usuarios máximos
+              <Label>Método de pago</Label>
+              <Select
+                value={licenseForm.paymentMethod}
+                onValueChange={(
+                  value: "card" | "transfer" | "cash" | "other"
+                ) =>
+                  setLicenseForm((current) => ({
+                    ...current,
+                    paymentMethod: value,
+                  }))
+                }
+              >
+                <SelectTrigger data-testid="select-license-payment-method">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="card">Tarjeta</SelectItem>
+                  <SelectItem value="transfer">Transferencia</SelectItem>
+                  <SelectItem value="cash">Efectivo</SelectItem>
+                  <SelectItem value="other">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {licenseForm.paymentMethod === "card" && (
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="license-card-name">Nombre de la tarjeta</Label>
+                  <Input
+                    id="license-card-name"
+                    value={licenseForm.cardName}
+                    onChange={(event) =>
+                      setLicenseForm((current) => ({
+                        ...current,
+                        cardName: event.target.value,
+                      }))
+                    }
+                    placeholder="Visa empresarial"
+                    data-testid="input-license-card-name"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="license-bank-name">Banco</Label>
+                  <Input
+                    id="license-bank-name"
+                    value={licenseForm.bankName}
+                    onChange={(event) =>
+                      setLicenseForm((current) => ({
+                        ...current,
+                        bankName: event.target.value,
+                      }))
+                    }
+                    placeholder="Banco Pichincha"
+                    data-testid="input-license-bank-name"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="license-purpose">
+                ¿Por qué la empresa paga esto?
               </Label>
-              <Input
-                id="license-max-users"
-                type="number"
-                min="0"
-                step="1"
-                value={licenseForm.maxUsers}
+              <Textarea
+                id="license-purpose"
+                value={licenseForm.purpose}
                 onChange={(event) =>
                   setLicenseForm((current) => ({
                     ...current,
-                    maxUsers: event.target.value,
+                    purpose: event.target.value,
                   }))
                 }
-                placeholder="Ej. 25"
-                data-testid="input-license-max-users"
+                placeholder="Describe el motivo de negocio"
+                data-testid="textarea-license-purpose"
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Renovación</Label>
+              <RadioGroup
+                className="flex min-h-10 flex-wrap items-center gap-6"
+                value={licenseForm.renewalType}
+                onValueChange={(value: "automatic" | "manual") =>
+                  setLicenseForm((current) => ({
+                    ...current,
+                    renewalType: value,
+                  }))
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="automatic" id="license-renewal-automatic" />
+                  <label className="cursor-pointer text-sm font-medium" htmlFor="license-renewal-automatic">
+                    Automática
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="manual" id="license-renewal-manual" />
+                  <label className="cursor-pointer text-sm font-medium" htmlFor="license-renewal-manual">
+                    Manual
+                  </label>
+                </div>
+              </RadioGroup>
             </div>
 
             <div className="grid gap-2">
