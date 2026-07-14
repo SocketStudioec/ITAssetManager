@@ -17,6 +17,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import AddMaintenanceModal from "@/components/modals/add-maintenance-modal";
@@ -88,7 +89,7 @@ function formatCurrency(value: unknown) {
 export default function Maintenance() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export default function Maintenance() {
     : userCompanies;
 
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (companies.length > 0 && !companies.some((uc: any) => uc.company.id === selectedCompanyId)) {
       setSelectedCompanyId(String(companies[0].company.id));
     }
   }, [companies, selectedCompanyId]);

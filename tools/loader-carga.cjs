@@ -131,6 +131,26 @@ async function getOrCreateCategory(client, companyId, name, years) {
   return categoryId;
 }
 
+async function insertCustomFields(client, companyId, assetId, fields) {
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    const fieldName = String((field && field.fieldName) || "").trim();
+    if (!fieldName) continue;
+    const fieldValue = String((field && field.fieldValue) ?? "");
+
+    await client.query(
+      `INSERT INTO asset_custom_fields (
+         company_id, asset_id, field_name, field_value, sort_order
+       ) VALUES ($1, $2, $3, $4, $5)`,
+      [companyId, assetId, fieldName, fieldValue, index]
+    );
+  }
+}
+
 async function insertApplication(client, companyId, app) {
   if (!app || typeof app !== "object") {
     throw new Error("Se encontró una aplicación inválida en el archivo JSON.");
@@ -142,7 +162,7 @@ async function insertApplication(client, companyId, app) {
 
   const assetCode = await genAssetCode(client);
 
-  await client.query(
+  const inserted = await client.query(
     `INSERT INTO assets (
        company_id,
        name,
@@ -180,7 +200,8 @@ async function insertApplication(client, companyId, app) {
        $10,
        NULL,
        $11
-     )`,
+     )
+     RETURNING id`,
     [
       companyId,
       app.name,
@@ -195,6 +216,8 @@ async function insertApplication(client, companyId, app) {
       assetCode,
     ]
   );
+
+  await insertCustomFields(client, companyId, inserted.rows[0].id, app.customFields);
 }
 
 async function insertAsset(client, asset) {
@@ -213,7 +236,7 @@ async function insertAsset(client, asset) {
   );
   const assetCode = await genAssetCode(client);
 
-  await client.query(
+  const inserted = await client.query(
     `INSERT INTO assets (
        company_id,
        name,
@@ -239,7 +262,8 @@ async function insertAsset(client, asset) {
        $7,
        0,
        0
-     )`,
+     )
+     RETURNING id`,
     [
       BEGROUP_ID,
       asset.name,
@@ -250,6 +274,8 @@ async function insertAsset(client, asset) {
       assetCode,
     ]
   );
+
+  await insertCustomFields(client, BEGROUP_ID, inserted.rows[0].id, asset.customFields);
 }
 
 async function insertApplications(
@@ -402,6 +428,14 @@ async function ensureSocketCompany(client) {
   } else {
     console.log("  El usuario Kevin ya está vinculado a Socket Studio.");
   }
+
+  // Idempotencia: si Socket ya tenía aplicaciones de una corrida previa, se
+  // borran para no duplicarlas (los custom fields caen por ON DELETE CASCADE).
+  const deletedSocketApps = await client.query(
+    "DELETE FROM assets WHERE company_id = $1 AND type = 'application'",
+    [socketId]
+  );
+  console.log(`  Aplicaciones previas de Socket borradas: ${deletedSocketApps.rowCount}`);
 
   return socketId;
 }

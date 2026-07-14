@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import { apiRequest } from "@/lib/queryClient";
 import { insertCompanySchema } from "@shared/schema";
 import Sidebar from "@/components/layout/sidebar";
@@ -66,7 +67,7 @@ export default function Settings() {
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
 
   // Redirect to home if not authenticated
@@ -91,7 +92,7 @@ export default function Settings() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if (userCompanies.length > 0 && !selectedCompanyId) {
+    if (userCompanies.length > 0 && !userCompanies.some((uc: any) => uc.company.id === selectedCompanyId)) {
       setSelectedCompanyId(userCompanies[0].company.id);
     }
   }, [userCompanies, selectedCompanyId]);

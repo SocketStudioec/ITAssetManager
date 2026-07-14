@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +36,7 @@ import {
 export default function Reports() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [reportPeriod, setReportPeriod] = useState("monthly");
 
   // Redirect to home if not authenticated
@@ -73,7 +74,7 @@ export default function Reports() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (companies.length > 0 && !companies.some((uc: any) => uc.company.id === selectedCompanyId)) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);

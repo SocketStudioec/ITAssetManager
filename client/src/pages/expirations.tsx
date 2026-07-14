@@ -7,6 +7,7 @@ import {
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
@@ -156,7 +157,7 @@ export default function Expirations() {
     isLoading: isAuthLoading,
   } = useAuth();
 
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [days, setDays] = useState(30);
   const [showDismissed, setShowDismissed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -193,8 +194,9 @@ export default function Expirations() {
 
   useEffect(() => {
     const firstCompanyId = companies[0]?.company?.id;
+    const isMember = companies.some((uc: any) => uc.company?.id === selectedCompanyId);
 
-    if (firstCompanyId && !selectedCompanyId) {
+    if (firstCompanyId && !isMember) {
       setSelectedCompanyId(String(firstCompanyId));
     }
   }, [companies, selectedCompanyId]);

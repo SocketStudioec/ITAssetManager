@@ -91,6 +91,13 @@ function loadSocketApps() {
       frecuencia || "-"
     } · Día de pago ${diaPago || "-"}`;
 
+    // Datos del Excel que no tienen campo propio → etiquetas (custom fields).
+    const customFields = [
+      { fieldName: "Tipo de gasto", fieldValue: tipo },
+      { fieldName: "Frecuencia", fieldValue: frecuencia },
+      { fieldName: "Día de pago", fieldValue: diaPago },
+    ].filter((f) => norm(f.fieldValue));
+
     socketApps.push({
       kind: "subscription",
       name,
@@ -101,6 +108,7 @@ function loadSocketApps() {
       purpose,
       paymentMethod: "other",
       renewalType: "manual",
+      customFields,
     });
   }
 
@@ -212,6 +220,17 @@ function loadBegroupApps() {
     const monthlyCost = billingCycle === "monthly" ? charge : 0;
     const annualCost = billingCycle === "monthly" ? 0 : charge;
 
+    // Columnas del Excel sin campo propio → etiquetas (custom fields).
+    const customFields = [
+      { fieldName: "Detalle", fieldValue: detalle },
+      { fieldName: "Método de pago (Excel)", fieldValue: metodo },
+      { fieldName: "Frecuencia", fieldValue: frecuencia },
+      { fieldName: "Renovación", fieldValue: renovacion },
+      { fieldName: "Área", fieldValue: area },
+      { fieldName: "Categoría (Excel)", fieldValue: categoria },
+      { fieldName: "Empleado en", fieldValue: empleadoEn },
+    ].filter((f) => norm(f.fieldValue));
+
     const app = {
       kind: "subscription",
       name,
@@ -223,6 +242,7 @@ function loadBegroupApps() {
       paymentMethod,
       cardName,
       renewalType: "manual",
+      customFields,
       area,
       categoria,
     };

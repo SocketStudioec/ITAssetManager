@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
@@ -122,7 +123,7 @@ export default function PhysicalAssets() {
   const { isAuthenticated, isLoading } = useAuth();
   const queryClient = useQueryClient();
 
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -171,7 +172,8 @@ export default function PhysicalAssets() {
     : userCompanies;
 
   useEffect(() => {
-    if (Array.isArray(companies) && companies.length > 0 && !selectedCompanyId) {
+    if (Array.isArray(companies) && companies.length > 0 &&
+        !companies.some((uc: any) => uc.company.id === selectedCompanyId)) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);

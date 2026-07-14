@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +32,7 @@ import {
 export default function Dashboard() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
 
   // Redirect to home if not authenticated
@@ -71,8 +72,9 @@ export default function Dashboard() {
 
   // Set default company when companies are loaded
   useEffect(() => {
-    if ((companies as any[]).length > 0 && !selectedCompanyId) {
-      setSelectedCompanyId((companies as any[])[0].company.id);
+    const list = companies as any[];
+    if (list.length > 0 && !list.some((uc) => uc.company.id === selectedCompanyId)) {
+      setSelectedCompanyId(list[0].company.id);
     }
   }, [companies, selectedCompanyId]);
 
@@ -194,9 +196,8 @@ export default function Dashboard() {
                       <p className="text-2xl font-bold text-foreground" data-testid="text-monthly-cost">
                         ${isDashboardLoading ? "..." : costs.monthlyTotal?.toLocaleString() || "0"}
                       </p>
-                      <p className="text-xs text-accent flex items-center mt-1">
-                        <TrendingUp className="w-3 h-3 mr-1" />
-                        12% vs mes anterior
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Suscripciones + depreciación
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center">
@@ -231,9 +232,8 @@ export default function Dashboard() {
                       <p className="text-2xl font-bold text-foreground" data-testid="text-applications-count">
                         {isDashboardLoading ? "..." : assets.applications || 0}
                       </p>
-                      <p className="text-xs text-accent flex items-center mt-1">
-                        <Plus className="w-3 h-3 mr-1" />
-                        3 nuevas este mes
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Suscripciones y licencias activas
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-chart-3 rounded-lg flex items-center justify-center">
@@ -251,9 +251,8 @@ export default function Dashboard() {
                       <p className="text-2xl font-bold text-foreground" data-testid="text-physical-assets-count">
                         {isDashboardLoading ? "..." : assets.physicalAssets || 0}
                       </p>
-                      <p className="text-xs text-destructive flex items-center mt-1">
-                        <AlertTriangle className="w-3 h-3 mr-1" />
-                        8 requieren mantenimiento
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Equipos en inventario
                       </p>
                     </div>
                     <div className="w-12 h-12 bg-chart-4 rounded-lg flex items-center justify-center">

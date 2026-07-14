@@ -49,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import ContractExtrasModal from "@/components/modals/contract-extras-modal";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import {
   AlertTriangle,
   Calendar,
@@ -170,7 +171,7 @@ const formatCurrency = (value: unknown) =>
 export default function Contracts() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [searchTerm, setSearchTerm] = useState("");
   const [assetSearchTerm, setAssetSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -212,7 +213,7 @@ export default function Contracts() {
     : userCompanies;
 
   useEffect(() => {
-    if (companies.length > 0 && !selectedCompanyId) {
+    if (companies.length > 0 && !companies.some((uc: any) => uc.company.id === selectedCompanyId)) {
       setSelectedCompanyId(companies[0].company.id);
     }
   }, [companies, selectedCompanyId]);

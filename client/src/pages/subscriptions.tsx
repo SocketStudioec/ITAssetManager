@@ -8,6 +8,7 @@ import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import AddAssetModal from "@/components/modals/add-asset-modal";
 import ImportExcelModal from "@/components/modals/import-excel-modal";
+import { usePersistedCompany } from "@/hooks/usePersistedCompany";
 import EditAssetModal from "@/components/modals/edit-asset-modal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -204,7 +205,7 @@ export default function Subscriptions() {
   const { isAuthenticated, isLoading } = useAuth();
   const queryClient = useQueryClient();
 
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedCompany();
   const [searchTerm, setSearchTerm] = useState("");
 
   const [showAddSelector, setShowAddSelector] = useState(false);
@@ -256,7 +257,7 @@ export default function Subscriptions() {
     if (
       Array.isArray(companies) &&
       companies.length > 0 &&
-      !selectedCompanyId
+      !companies.some((uc: any) => uc.company.id === selectedCompanyId)
     ) {
       setSelectedCompanyId(companies[0].company.id);
     }
