@@ -609,8 +609,16 @@ async function main() {
   const atendida = (await lopdpStorage.getTitularRequests(medico.companyId))[0];
   check("la solicitud atendida registra fecha de respuesta", Boolean(atendida.answeredAt));
 
-  // Solicitud vencida penaliza el cumplimiento
+  // Una solicitud vencida demuestra que el canal ARCO no funciona en la práctica.
+  // Para que la penalización sea observable, primero hay que TENER el canal
+  // acreditado (documento publicado): si el ítem ya valía 0, no hay nada que degradar.
+  const arcoDoc = (await lopdpStorage.getDocuments(medico.companyId)).find((d: any) => d.docType === "arco");
+  await lopdpStorage.updateDocument(medico.companyId, arcoDoc.id, { status: "published" });
   const antesVencida = await lopdpStorage.getLatestAssessment(medico.companyId);
+  const itemArcoAntes = (antesVencida.breakdown as any).compliance.find((i: any) => i.key === "arco");
+  check("con el procedimiento ARCO publicado el ítem suma su puntaje completo",
+    itemArcoAntes.earned === itemArcoAntes.weight, `${itemArcoAntes.earned} de ${itemArcoAntes.weight}`);
+
   const vieja = new Date();
   vieja.setDate(vieja.getDate() - 40);
   await lopdpStorage.createTitularRequest(medico.companyId, {
@@ -620,7 +628,11 @@ async function main() {
   check("una solicitud fuera de plazo se marca como vencida",
     conVencida.some((r: any) => r.isOverdue === true));
   const despuesVencida = await lopdpStorage.recomputeAssessment(medico.companyId, "manual");
-  check("una solicitud vencida degrada la calificación de cumplimiento",
+  const itemArcoDespues = (despuesVencida.breakdown as any).compliance.find((i: any) => i.key === "arco");
+  check("una solicitud vencida degrada el ítem ARCO aunque el documento esté publicado",
+    itemArcoDespues.earned < itemArcoAntes.earned,
+    `${itemArcoAntes.earned} → ${itemArcoDespues.earned}`);
+  check("una solicitud vencida baja la calificación de cumplimiento",
     Number(despuesVencida.complianceScore) < Number(antesVencida.complianceScore),
     `${Number(antesVencida.complianceScore).toFixed(1)} → ${Number(despuesVencida.complianceScore).toFixed(1)}`);
 

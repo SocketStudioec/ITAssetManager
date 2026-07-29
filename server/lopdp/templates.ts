@@ -1321,9 +1321,9 @@ function certificadoDocument(ctx: DocumentContext): string {
 
 > **Naturaleza de este certificado.** Se trata de una **evaluación autodeclarativa** realizada con la
 > metodología de la Guía de Gestión de Riesgos e Impacto de la Superintendencia de Protección de Datos
-> Personales, sobre la información registrada por la propia empresa. **No constituye una certificación
-> oficial en los términos del artículo 54 de la LOPDP**, que corresponde emitir a las entidades de
-> certificación acreditadas.
+> Personales, sobre la información registrada por la propia empresa.
+> **No constituye una certificación oficial** en los términos del artículo 54 de la LOPDP, que
+> corresponde emitir a las entidades de certificación acreditadas.
 
 ## Resultado de la evaluación
 
