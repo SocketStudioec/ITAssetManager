@@ -609,20 +609,83 @@ export interface ComplianceCheckDef {
   /** Control cuya implementación satisface el ítem. */
   controlKeys?: string[];
   conditional?: "high_risk" | "dpo_required";
+  /** Qué es esta obligación, en lenguaje llano (para la UI y los informes). */
+  meaning: string;
+  /** Qué pasa si NO la cumples: la consecuencia concreta ante la autoridad. */
+  consequence: string;
+  /** Gravedad de la infracción que se configura al no cumplirla. */
+  infraction: DpInfractionLevel;
 }
 
 export const COMPLIANCE_CHECKS: ComplianceCheckDef[] = [
-  { key: "base_legal", label: "Base legal identificada para cada tratamiento", legalBasis: "Art. 7 LOPDP", weight: 12, controlKeys: ["J01"] },
-  { key: "rat", label: "Registro de Actividades de Tratamiento vigente", legalBasis: "Art. 37 LOPDP", weight: 12, docType: "rat", controlKeys: ["J02"] },
-  { key: "politica", label: "Política de protección de datos publicada", legalBasis: "Arts. 10-11 LOPDP", weight: 10, docType: "privacy_policy", controlKeys: ["J03"] },
-  { key: "consentimiento", label: "Consentimientos implementados", legalBasis: "Art. 8 LOPDP", weight: 10, docType: "consent", controlKeys: ["J04"] },
-  { key: "encargos", label: "Contratos de encargo con proveedores", legalBasis: "Art. 28 LOPDP", weight: 12, docType: "dpa", controlKeys: ["J05"] },
-  { key: "arco", label: "Canal y procedimiento de derechos ARCO-PL", legalBasis: "Arts. 12-22, 62 LOPDP", weight: 10, docType: "arco", controlKeys: ["J06"] },
-  { key: "eipdp", label: "Evaluación de impacto (EIPDP) realizada", legalBasis: "Arts. 40-42 LOPDP", weight: 10, docType: "eipdp", controlKeys: ["J07"], conditional: "high_risk" },
-  { key: "brechas", label: "Protocolo de vulneraciones (72 horas)", legalBasis: "Arts. 43-46 LOPDP", weight: 8, docType: "breach_protocol", controlKeys: ["J08"] },
-  { key: "tecnicas", label: "Medidas técnicas mínimas (cifrado, respaldos, accesos, MFA)", legalBasis: "Arts. 37-39 LOPDP", weight: 8, controlKeys: ["T01", "T02", "T03", "O02"] },
-  { key: "dpd", label: "Delegado de Protección de Datos designado y registrado", legalBasis: "Arts. 47-49 LOPDP", weight: 4, controlKeys: ["J09"], conditional: "dpo_required" },
-  { key: "capacitacion", label: "Personal capacitado (último año)", legalBasis: "Art. 49 LOPDP", weight: 4, controlKeys: ["O01"] },
+  {
+    key: "base_legal", label: "Base legal identificada para cada tratamiento",
+    legalBasis: "Art. 7 LOPDP", weight: 12, controlKeys: ["J01"], infraction: "grave",
+    meaning: "Para cada uso que le das a los datos debe existir una razón que la ley acepte: consentimiento, un contrato, una obligación legal o tu interés legítimo.",
+    consequence: "Tratar datos sin base legal es tratamiento ilegítimo: la autoridad puede ordenar que CESES el tratamiento y eliminar los datos, además de la multa.",
+  },
+  {
+    key: "rat", label: "Registro de Actividades de Tratamiento vigente",
+    legalBasis: "Art. 37 LOPDP", weight: 12, docType: "rat", controlKeys: ["J02"], infraction: "grave",
+    meaning: "Es el inventario oficial de qué datos tratas, para qué, dónde viven y quién accede. Es el PRIMER documento que pide la Superintendencia.",
+    consequence: "Sin RAT no puedes demostrar nada de lo demás. Es la evidencia base de todo el expediente de cumplimiento.",
+  },
+  {
+    key: "politica", label: "Política de protección de datos publicada",
+    legalBasis: "Arts. 10-11 LOPDP", weight: 10, docType: "privacy_policy", controlKeys: ["J03"], infraction: "leve",
+    meaning: "El aviso que informa a tus clientes qué haces con sus datos y cómo pueden ejercer sus derechos. Debe estar accesible, no guardado en un cajón.",
+    consequence: "No mantener disponibles políticas de protección de datos es infracción leve expresa (art. 67.3).",
+  },
+  {
+    key: "consentimiento", label: "Consentimientos implementados",
+    legalBasis: "Art. 8 LOPDP", weight: 10, docType: "consent", controlKeys: ["J04"], infraction: "muy_grave",
+    meaning: "Cuando tu base legal es el consentimiento, debe ser libre, específico, informado y poder revocarse igual de fácil que se otorgó.",
+    consequence: "Tratar datos sensibles (salud, biométricos) sin consentimiento explícito es infracción MUY GRAVE.",
+  },
+  {
+    key: "encargos", label: "Contratos de encargo con proveedores",
+    legalBasis: "Art. 28 LOPDP", weight: 12, docType: "dpa", controlKeys: ["J05"], infraction: "grave",
+    meaning: "Todo proveedor que toque datos de tus clientes por cuenta tuya (nube, contador, soporte, laboratorio) necesita un contrato que lo obligue a protegerlos.",
+    consequence: "Sin contrato respondes tú por lo que haga el proveedor. Elegir un encargado sin garantías suficientes es infracción leve; ceder datos sin cumplir requisitos es grave.",
+  },
+  {
+    key: "arco", label: "Canal y procedimiento de derechos ARCO-PL",
+    legalBasis: "Arts. 12-22, 62 LOPDP", weight: 10, docType: "arco", controlKeys: ["J06"], infraction: "leve",
+    meaning: "Un correo o formulario visible donde tus clientes puedan pedir, corregir o borrar sus datos, con un procedimiento interno para responderles en 10 días término.",
+    consequence: "No tramitar o negar injustificadamente una solicitud es infracción leve (art. 67.1) y habilita al titular a reclamar ante la Superintendencia (art. 64).",
+  },
+  {
+    key: "eipdp", label: "Evaluación de impacto (EIPDP) realizada",
+    legalBasis: "Arts. 40-42 LOPDP", weight: 10, docType: "eipdp", controlKeys: ["J07"],
+    conditional: "high_risk", infraction: "muy_grave",
+    meaning: "Análisis obligatorio ANTES de tratar datos de alto riesgo (salud, biométricos, menores, perfilamiento o datos fuera del país).",
+    consequence: "No realizar la evaluación de impacto cuando era necesaria es infracción GRAVE expresa (art. 68.5), y muy grave según el impacto.",
+  },
+  {
+    key: "brechas", label: "Protocolo de vulneraciones (72 horas)",
+    legalBasis: "Arts. 43-46 LOPDP", weight: 8, docType: "breach_protocol", controlKeys: ["J08"], infraction: "grave",
+    meaning: "El plan escrito de qué hacer si te hackean o filtras datos: a quién avisar, en qué orden y con qué contenido.",
+    consequence: "Tienes 72 horas para notificar a la Superintendencia desde que te enteras. Sin protocolo, ese plazo se te pasa improvisando.",
+  },
+  {
+    key: "tecnicas", label: "Medidas técnicas mínimas (cifrado, respaldos, accesos, MFA)",
+    legalBasis: "Arts. 37-39 LOPDP", weight: 8, controlKeys: ["T01", "T02", "T03", "O02"], infraction: "grave",
+    meaning: "La seguridad real: datos cifrados, respaldos que sabes restaurar, verificación en dos pasos y que cada persona vea solo lo que necesita.",
+    consequence: "No implementar medidas técnicas y organizativas es infracción GRAVE expresa (art. 68.1). Es lo primero que audita la autoridad tras una fuga.",
+  },
+  {
+    key: "dpd", label: "Delegado de Protección de Datos designado y registrado",
+    legalBasis: "Arts. 47-49 LOPDP", weight: 4, controlKeys: ["J09"],
+    conditional: "dpo_required", infraction: "grave",
+    meaning: "La persona responsable de la protección de datos ante la Superintendencia. Obligatorio si tratas datos sensibles a gran escala o si tratar datos es tu actividad principal.",
+    consequence: "Su ausencia cuando es obligatorio es una vulnerabilidad jurídica que agrava cualquier otro incumplimiento.",
+  },
+  {
+    key: "capacitacion", label: "Personal capacitado (último año)",
+    legalBasis: "Art. 49 LOPDP", weight: 4, controlKeys: ["O01"], infraction: "leve",
+    meaning: "Tu equipo debe saber qué puede y qué no puede hacer con los datos. La mayoría de las fugas empiezan por un error humano.",
+    consequence: "La negligencia por falta de capacitación NO te exime de responsabilidad: al contrario, evidencia una vulnerabilidad organizacional.",
+  },
 ];
 
 export interface ComplianceContext {
@@ -691,6 +754,9 @@ export function computeComplianceScore(ctx: ComplianceContext): {
       satisfied: ratio >= 1,
       partial: ratio > 0 && ratio < 1,
       detail: details.join("; ") || "sin evidencia registrada",
+      meaning: check.meaning,
+      consequence: check.consequence,
+      infraction: check.infraction,
     });
   }
 
@@ -704,6 +770,211 @@ export function complianceGrade(score: number): DpGrade {
   if (score >= 55) return "C";
   if (score >= 35) return "D";
   return "E";
+}
+
+// ============================================================================
+// INTERPRETACIÓN: qué significa la calificación y qué hacer con ella
+// ============================================================================
+
+/**
+ * UMBRALES.
+ *
+ * Cumplimiento: la LOPDP no admite "aceptar" el incumplimiento de la ley — la
+ * Guía SPDP es explícita en que, frente a las obligaciones legales, el criterio
+ * de aceptación de riesgo NO aplica porque el cumplimiento debe ser del 100 %.
+ * Por eso el objetivo real es 100 y no un promedio "aprobado":
+ *   - 90 (nivel A) = umbral práctico de "cubierto": todas las obligaciones con
+ *     peso alto satisfechas y a lo sumo detalles menores pendientes.
+ *   - 75 (nivel B) = mínimo defendible ante un requerimiento: se puede demostrar
+ *     responsabilidad proactiva aunque falten piezas.
+ *   - Por debajo de 75 hay obligaciones expresas sin cumplir.
+ *
+ * Riesgo: aquí SÍ existe riesgo residual aceptable (siempre lo habrá). Se fija
+ * en 20 (nivel A) como objetivo y 40 (nivel B) como máximo tolerable.
+ */
+export const COMPLIANCE_TARGET_MINIMUM = 75;
+export const COMPLIANCE_TARGET_SAFE = 90;
+export const RISK_TARGET_MAXIMUM = 40;
+export const RISK_TARGET_SAFE = 20;
+
+const COMPLIANCE_BANDS: Record<DpGrade, { title: string; meaning: string }> = {
+  A: {
+    title: "Cumplimiento sólido",
+    meaning:
+      "Tienes cubiertas las obligaciones de la LOPDP y puedes demostrarlo con evidencia fechada. " +
+      "Ante un requerimiento de la Superintendencia entregas tu expediente y sostienes la responsabilidad proactiva del art. 10.",
+  },
+  B: {
+    title: "Cumplimiento aceptable",
+    meaning:
+      "Lo esencial está cubierto y podrías defenderte ante un requerimiento, pero quedan piezas sin cerrar. " +
+      "Si hoy te inspeccionan, la autoridad encontrará observaciones y probablemente dispondrá medidas correctivas.",
+  },
+  C: {
+    title: "Cumplimiento parcial",
+    meaning:
+      "Empezaste, pero faltan obligaciones expresas de la ley. Ante una denuncia de un cliente o una inspección, " +
+      "no puedes acreditar el cumplimiento y quedas expuesto a medidas correctivas y sanción.",
+  },
+  D: {
+    title: "Cumplimiento insuficiente",
+    meaning:
+      "La mayoría de tus obligaciones legales están sin cubrir. Estás tratando datos personales sin el respaldo " +
+      "documental que la ley exige: cualquier reclamo escala rápido a un procedimiento sancionatorio.",
+  },
+  E: {
+    title: "Sin cumplimiento acreditado",
+    meaning:
+      "No tienes prácticamente nada que mostrar. Tratas datos personales sin base legal documentada, sin registro " +
+      "y sin medidas acreditadas. Es la situación de máxima exposición frente a la LOPDP.",
+  },
+};
+
+const RISK_BANDS: Record<DpGrade, { title: string; meaning: string }> = {
+  A: {
+    title: "Riesgo bajo",
+    meaning: "Tus escenarios de riesgo están controlados. El riesgo residual es el mínimo razonable: ningún control lo elimina del todo.",
+  },
+  B: {
+    title: "Riesgo moderado",
+    meaning: "Hay exposición, pero acotada. Los controles implementados reducen la probabilidad de que los riesgos se materialicen.",
+  },
+  C: {
+    title: "Riesgo considerable",
+    meaning: "Varios escenarios pueden materializarse con facilidad. Faltan controles que la propia ley considera exigibles según la naturaleza de tus datos.",
+  },
+  D: {
+    title: "Riesgo alto",
+    meaning: "Tus datos personales están expuestos. Una fuga no es hipotética: las vulnerabilidades detectadas la hacen probable.",
+  },
+  E: {
+    title: "Riesgo crítico",
+    meaning: "Exposición máxima. Tratas datos personales sin las medidas de seguridad mínimas y con escenarios de impacto severo sobre los titulares.",
+  },
+};
+
+export interface InterpretationContext {
+  riskScore: number;
+  complianceScore: number;
+  items: DpComplianceItem[];
+  /** Acciones pendientes del plan, para construir las recomendaciones. */
+  pendingActions: Array<{
+    title: string;
+    legalBasis: string | null;
+    effort: string;
+    compliancePoints: number;
+    priority: number;
+  }>;
+  estimatedFineMax: number;
+  worstInfraction: DpInfractionLevel | null;
+}
+
+const INFRACTION_ORDER: Record<DpInfractionLevel, number> = { muy_grave: 0, grave: 1, leve: 2 };
+
+/**
+ * Traduce las calificaciones a lenguaje accionable: qué significan, qué puntaje
+ * hace falta para no tener problemas y qué hacer si se está por debajo.
+ */
+export function interpretAssessment(ctx: InterpretationContext) {
+  const cGrade = complianceGrade(ctx.complianceScore);
+  const rGrade = riskGrade(ctx.riskScore);
+
+  const complianceOk = ctx.complianceScore >= COMPLIANCE_TARGET_MINIMUM;
+  const riskOk = ctx.riskScore <= RISK_TARGET_MAXIMUM;
+  const complianceSafe = ctx.complianceScore >= COMPLIANCE_TARGET_SAFE;
+  const riskSafe = ctx.riskScore <= RISK_TARGET_SAFE;
+
+  let status: "critico" | "en_riesgo" | "aceptable" | "protegido";
+  if (complianceSafe && riskSafe) status = "protegido";
+  else if (complianceOk && riskOk) status = "aceptable";
+  else if (ctx.complianceScore >= 35 || ctx.riskScore <= 60) status = "en_riesgo";
+  else status = "critico";
+
+  // Obligaciones incumplidas, las más graves primero.
+  const blockers = ctx.items
+    .filter((i) => !i.satisfied)
+    .sort((a, b) => {
+      const byInfraction = INFRACTION_ORDER[a.infraction] - INFRACTION_ORDER[b.infraction];
+      return byInfraction !== 0 ? byInfraction : b.weight - a.weight;
+    })
+    .map((i) => ({
+      key: i.key,
+      label: i.label,
+      legalBasis: i.legalBasis,
+      infraction: i.infraction,
+      meaning: i.meaning,
+      consequence: i.consequence,
+      pointsAvailable: Math.round((i.weight - i.earned) * 100) / 100,
+    }));
+
+  const recommendations = ctx.pendingActions
+    .slice()
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 8)
+    .map((a, idx) => ({
+      order: idx + 1,
+      title: a.title,
+      why: a.legalBasis
+        ? `Exigido por ${a.legalBasis}. Suma ${a.compliancePoints} puntos a tu cumplimiento.`
+        : `Suma ${a.compliancePoints} puntos a tu cumplimiento.`,
+      legalBasis: a.legalBasis,
+      effort: a.effort,
+      pointsGained: a.compliancePoints,
+    }));
+
+  // ¿Alcanza el plan pendiente para llegar a la meta?
+  const totalWeight = ctx.items.reduce((s, i) => s + i.weight, 0);
+  const recoverable = ctx.items.reduce((s, i) => s + (i.weight - i.earned), 0);
+  const achievableScore = totalWeight > 0
+    ? Math.round(((ctx.items.reduce((s, i) => s + i.earned, 0) + recoverable) / totalWeight) * 10000) / 100
+    : 0;
+
+  const headline = {
+    protegido: "Estás legalmente cubierto",
+    aceptable: "Estás en un nivel defendible, pero aún no cubierto",
+    en_riesgo: "Estás expuesto: hay obligaciones legales sin cumplir",
+    critico: "Situación crítica: no puedes acreditar cumplimiento",
+  }[status];
+
+  const gapCompliance = Math.max(0, COMPLIANCE_TARGET_MINIMUM - ctx.complianceScore);
+  const summary = complianceOk && riskOk
+    ? `Tu cumplimiento (${ctx.complianceScore.toFixed(0)}) supera el mínimo defendible de ${COMPLIANCE_TARGET_MINIMUM} y tu riesgo (${ctx.riskScore.toFixed(0)}) está dentro del máximo tolerable de ${RISK_TARGET_MAXIMUM}. Mantén la evidencia actualizada: el RAT se revisa cada 6 meses y la capacitación cada año.`
+    : `Necesitas subir ${gapCompliance.toFixed(0)} puntos de cumplimiento para llegar al mínimo defendible de ${COMPLIANCE_TARGET_MINIMUM}. ` +
+      (blockers.length > 0
+        ? `Tienes ${blockers.length} obligación(es) sin cumplir; la más grave es "${blockers[0].label}" (${blockers[0].legalBasis}).`
+        : "") +
+      (ctx.estimatedFineMax > 0
+        ? ` Exposición económica estimada: hasta $${Math.round(ctx.estimatedFineMax).toLocaleString("es-EC")}.`
+        : "");
+
+  return {
+    status,
+    headline,
+    summary,
+    compliance: {
+      score: ctx.complianceScore,
+      grade: cGrade,
+      title: COMPLIANCE_BANDS[cGrade].title,
+      meaning: COMPLIANCE_BANDS[cGrade].meaning,
+      target: COMPLIANCE_TARGET_MINIMUM,
+      safeTarget: COMPLIANCE_TARGET_SAFE,
+      gap: Math.round(gapCompliance * 100) / 100,
+      reachesTarget: complianceOk,
+    },
+    risk: {
+      score: ctx.riskScore,
+      grade: rGrade,
+      title: RISK_BANDS[rGrade].title,
+      meaning: RISK_BANDS[rGrade].meaning,
+      target: RISK_TARGET_MAXIMUM,
+      safeTarget: RISK_TARGET_SAFE,
+      gap: Math.round(Math.max(0, ctx.riskScore - RISK_TARGET_MAXIMUM) * 100) / 100,
+      reachesTarget: riskOk,
+    },
+    blockers,
+    recommendations,
+    achievableScore,
+  };
 }
 
 // ============================================================================

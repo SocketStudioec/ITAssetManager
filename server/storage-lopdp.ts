@@ -16,6 +16,7 @@ import {
   incidentSpdpDeadline,
   isDpoRequired,
   isHighRiskTreatment,
+  interpretAssessment,
   quantitativeRisk,
   riskGrade,
   riskLevel,
@@ -499,6 +500,35 @@ export class LopdpStorage {
       ],
     );
     return toCamel(rows[0]);
+  }
+
+  /**
+   * Lectura accionable de la calificación vigente: qué significa, qué puntaje
+   * hace falta para estar cubierto y qué hacer si se está por debajo.
+   */
+  async getInterpretation(companyId: string): Promise<any | null> {
+    const assessment = await this.getLatestAssessment(companyId);
+    if (!assessment) return null;
+
+    const actions = await this.getActions(companyId);
+    const pendingActions = actions
+      .filter((a: any) => a.status === "pending" || a.status === "in_progress")
+      .map((a: any) => ({
+        title: a.title,
+        legalBasis: a.legalBasis,
+        effort: a.effort,
+        compliancePoints: num(a.compliancePoints),
+        priority: num(a.priority),
+      }));
+
+    return interpretAssessment({
+      riskScore: num(assessment.riskScore),
+      complianceScore: num(assessment.complianceScore),
+      items: (assessment.breakdown?.compliance ?? []) as any[],
+      pendingActions,
+      estimatedFineMax: num(assessment.estimatedFineMax),
+      worstInfraction: assessment.worstInfraction ?? null,
+    });
   }
 
   async getLatestAssessment(companyId: string): Promise<any | null> {

@@ -279,6 +279,66 @@ export interface DpComplianceItem {
   satisfied: boolean;
   partial: boolean;
   detail: string;
+  /** Qué es esta obligación, en lenguaje llano. */
+  meaning: string;
+  /** Qué pasa si no la cumples. */
+  consequence: string;
+  /** Gravedad de la infracción que se configura al no cumplirla. */
+  infraction: DpInfractionLevel;
+}
+
+/**
+ * Lectura de la calificación: qué significa, qué puntaje se necesita para estar
+ * cubierto y qué hacer si se está por debajo.
+ */
+export interface DpInterpretation {
+  /** Estado global, la respuesta a "¿estoy bien o mal?". */
+  status: "critico" | "en_riesgo" | "aceptable" | "protegido";
+  headline: string;
+  summary: string;
+  compliance: {
+    score: number;
+    grade: DpGrade;
+    title: string;
+    meaning: string;
+    /** Puntaje mínimo para no tener problemas serios. */
+    target: number;
+    /** Puntaje objetivo para considerarse cubierto. */
+    safeTarget: number;
+    gap: number;
+    reachesTarget: boolean;
+  };
+  risk: {
+    score: number;
+    grade: DpGrade;
+    title: string;
+    meaning: string;
+    target: number;
+    safeTarget: number;
+    gap: number;
+    reachesTarget: boolean;
+  };
+  /** Obligaciones incumplidas que más pesan, ordenadas por gravedad. */
+  blockers: Array<{
+    key: string;
+    label: string;
+    legalBasis: string;
+    infraction: DpInfractionLevel;
+    meaning: string;
+    consequence: string;
+    pointsAvailable: number;
+  }>;
+  /** Qué hacer ahora, en orden. */
+  recommendations: Array<{
+    order: number;
+    title: string;
+    why: string;
+    legalBasis: string | null;
+    effort: string;
+    pointsGained: number;
+  }>;
+  /** Cuántos puntos suman las acciones pendientes: ¿alcanza para llegar a la meta? */
+  achievableScore: number;
 }
 
 export interface DpAssessmentBreakdown {

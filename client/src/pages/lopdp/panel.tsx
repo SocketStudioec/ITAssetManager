@@ -16,7 +16,11 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   AlertTriangle, ArrowRight, RefreshCw, ShieldCheck, TrendingDown, Scale, CheckCircle2, Circle, MinusCircle,
 } from "lucide-react";
-import { DP_LEVEL_LABELS, gradeColor, levelColor, type DpAssessment, type DpStatus, type DpRiskScenario } from "@shared/lopdp";
+import Interpretacion from "@/components/lopdp/interpretacion";
+import {
+  DP_LEVEL_LABELS, gradeColor, levelColor,
+  type DpAssessment, type DpStatus, type DpRiskScenario, type DpInterpretation,
+} from "@shared/lopdp";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
@@ -115,6 +119,10 @@ export default function LopdpPanel() {
     queryKey: ["/api/dp", companyId, "scenarios"],
     enabled: Boolean(companyId) && status?.enabled === true,
   });
+  const { data: interpretation } = useQuery<DpInterpretation>({
+    queryKey: ["/api/dp", companyId, "interpretation"],
+    enabled: Boolean(companyId) && status?.enabled === true,
+  });
 
   const runEngine = useMutation({
     mutationFn: async () => {
@@ -201,6 +209,9 @@ export default function LopdpPanel() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Qué significa cada calificación, qué puntaje hace falta y qué hacer */}
+          {interpretation && <Interpretacion data={interpretation} />}
 
           {status && status.classifiedAssets < status.totalAssets && (
             <Card className="border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20">

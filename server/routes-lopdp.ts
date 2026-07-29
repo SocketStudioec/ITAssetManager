@@ -257,6 +257,20 @@ export function registerLopdpRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Lectura de la calificación: qué significa, qué puntaje se necesita para no
+   * tener problemas y qué hacer si se está por debajo.
+   */
+  app.get("/api/dp/:companyId/interpretation", isAuthenticated, async (req: AuthedRequest, res) => {
+    try {
+      const userId = await guard(req, res);
+      if (!userId) return;
+      res.json(await lopdpStorage.getInterpretation(req.params.companyId));
+    } catch (error) {
+      handleError(res, error, "get interpretation");
+    }
+  });
+
   app.get("/api/dp/:companyId/assessment/history", isAuthenticated, async (req: AuthedRequest, res) => {
     try {
       const userId = await guard(req, res);

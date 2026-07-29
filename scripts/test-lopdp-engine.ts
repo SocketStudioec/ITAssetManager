@@ -18,8 +18,12 @@ import {
   computeScenarios,
   estimateFine,
   incidentSpdpDeadline,
+  interpretAssessment,
   isDpoRequired,
   isHighRiskTreatment,
+  COMPLIANCE_TARGET_MINIMUM,
+  COMPLIANCE_TARGET_SAFE,
+  RISK_TARGET_MAXIMUM,
   presentVulnerabilities,
   quantitativeRisk,
   riskGrade,
@@ -354,6 +358,86 @@ check("quien actúa como encargado recibe el contrato espejo (art. 28)",
 
 const planCumplidor = buildActionPlan(empresaCompleta, false, false, false);
 eq("empresa que ya cumple todo no recibe acciones pendientes", planCumplidor.length, 0);
+
+// ============================================================================
+section("12. Interpretación de la calificación");
+// ============================================================================
+
+const accionesPendientes = plan.map((c) => ({
+  title: c.title, legalBasis: c.legalBasis, effort: c.effort,
+  compliancePoints: c.compliancePoints, priority: c.priority,
+}));
+
+const interpretacionMala = interpretAssessment({
+  riskScore: 75,
+  complianceScore: 5,
+  items: cumplimientoCero.items,
+  pendingActions: accionesPendientes,
+  estimatedFineMax: 7500,
+  worstInfraction: "muy_grave",
+});
+
+eq("empresa sin cumplimiento → estado crítico", interpretacionMala.status, "critico");
+check("el veredicto es explícito sobre la exposición",
+  interpretacionMala.headline.length > 10 && !interpretacionMala.compliance.reachesTarget);
+eq("el mínimo de cumplimiento exigido es 75", interpretacionMala.compliance.target, COMPLIANCE_TARGET_MINIMUM);
+eq("el objetivo de cumplimiento es 90", interpretacionMala.compliance.safeTarget, COMPLIANCE_TARGET_SAFE);
+eq("el máximo de riesgo tolerable es 40", interpretacionMala.risk.target, RISK_TARGET_MAXIMUM);
+eq("la brecha de cumplimiento se calcula bien", interpretacionMala.compliance.gap, 70);
+check("la brecha de riesgo se calcula bien", interpretacionMala.risk.gap === 35, `${interpretacionMala.risk.gap}`);
+check("lista las obligaciones incumplidas", interpretacionMala.blockers.length > 0);
+eq("las infracciones muy graves aparecen primero", interpretacionMala.blockers[0].infraction, "muy_grave");
+check("cada obligación explica qué es y qué pasa si falta",
+  interpretacionMala.blockers.every((b) => b.meaning.length > 30 && b.consequence.length > 30));
+check("entrega recomendaciones priorizadas", interpretacionMala.recommendations.length > 0);
+check("las recomendaciones vienen numeradas en orden",
+  interpretacionMala.recommendations.every((r, i) => r.order === i + 1));
+check("cada recomendación explica por qué hacerla",
+  interpretacionMala.recommendations.every((r) => r.why.length > 15));
+check("el resumen indica cuántos puntos faltan",
+  interpretacionMala.summary.includes("70") || interpretacionMala.summary.includes("puntos"));
+check("informa la exposición económica cuando existe",
+  interpretacionMala.summary.includes("7"), interpretacionMala.summary);
+
+const interpretacionBuena = interpretAssessment({
+  riskScore: 15,
+  complianceScore: 95,
+  items: cumplimientoTotal.items,
+  pendingActions: [],
+  estimatedFineMax: 0,
+  worstInfraction: null,
+});
+
+eq("empresa que cumple todo → estado protegido", interpretacionBuena.status, "protegido");
+check("cuando cumple, no hay obligaciones bloqueantes", interpretacionBuena.blockers.length === 0);
+check("cuando cumple, la brecha es cero",
+  interpretacionBuena.compliance.gap === 0 && interpretacionBuena.risk.gap === 0);
+check("cuando cumple, alcanza ambas metas",
+  interpretacionBuena.compliance.reachesTarget && interpretacionBuena.risk.reachesTarget);
+check("el resumen del cumplidor recuerda las revisiones periódicas",
+  interpretacionBuena.summary.includes("6 meses") || interpretacionBuena.summary.includes("RAT"));
+
+const interpretacionMedia = interpretAssessment({
+  riskScore: 38,
+  complianceScore: 78,
+  items: computeComplianceScore({
+    questionnaire: {},
+    completedControls: ["J01", "J02", "J03", "J05", "J06", "T01", "T02", "T03", "O02"],
+    documents: {}, highRisk: false, dpoRequired: false, overdueRequests: 0,
+  }).items,
+  pendingActions: accionesPendientes.slice(0, 3),
+  estimatedFineMax: 500,
+  worstInfraction: "leve",
+});
+eq("cumplimiento 78 con riesgo 38 → estado aceptable", interpretacionMedia.status, "aceptable");
+check("estado aceptable alcanza el mínimo pero no el objetivo",
+  interpretacionMedia.compliance.reachesTarget && interpretacionMedia.compliance.score < COMPLIANCE_TARGET_SAFE);
+
+check("las bandas describen cada nivel con texto propio",
+  interpretacionMala.compliance.meaning !== interpretacionBuena.compliance.meaning &&
+  interpretacionMala.risk.meaning !== interpretacionBuena.risk.meaning);
+check("el puntaje alcanzable completando el plan es 100",
+  interpretacionMala.achievableScore === 100, `${interpretacionMala.achievableScore}`);
 
 // ============================================================================
 console.log(`\n${"=".repeat(64)}`);
