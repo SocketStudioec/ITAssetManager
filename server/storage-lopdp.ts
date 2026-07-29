@@ -589,15 +589,17 @@ export class LopdpStorage {
       : null;
 
     const { rows } = await pool.query(
+      // $3 se usa a la vez en asignación y en comparación: sin el cast explícito
+      // Postgres no puede deducir el tipo (text vs varchar) y falla con 42P08.
       `UPDATE dp_action_item
-          SET status = $3,
+          SET status = $3::text,
               na_rationale = $4,
               assigned_to = COALESCE($5, assigned_to),
               due_date = COALESCE($6, due_date),
-              resolution_type = CASE WHEN $3 = 'done' THEN 'implemented'
-                                     WHEN $3 = 'not_applicable' THEN 'na'
+              resolution_type = CASE WHEN $3::text = 'done' THEN 'implemented'
+                                     WHEN $3::text = 'not_applicable' THEN 'na'
                                      ELSE resolution_type END,
-              completed_at = CASE WHEN $3 = 'done' THEN COALESCE(completed_at, NOW()) ELSE NULL END,
+              completed_at = CASE WHEN $3::text = 'done' THEN COALESCE(completed_at, NOW()) ELSE NULL END,
               evidence = CASE WHEN $7::jsonb IS NOT NULL THEN evidence || $7::jsonb ELSE evidence END,
               updated_at = NOW()
         WHERE id = $1 AND company_id = $2
@@ -873,11 +875,12 @@ export class LopdpStorage {
 
   async updateDocument(companyId: string, id: string, data: any): Promise<any> {
     const { rows } = await pool.query(
+      // Mismo caso que en updateAction: $5 necesita cast explícito.
       `UPDATE dp_document
           SET content = COALESCE($3, content),
               title = COALESCE($4, title),
-              status = COALESCE($5, status),
-              published_at = CASE WHEN $5 = 'published' THEN COALESCE(published_at, NOW()) ELSE published_at END,
+              status = COALESCE($5::text, status),
+              published_at = CASE WHEN $5::text = 'published' THEN COALESCE(published_at, NOW()) ELSE published_at END,
               updated_at = NOW()
         WHERE id = $1 AND company_id = $2
         RETURNING *`,
