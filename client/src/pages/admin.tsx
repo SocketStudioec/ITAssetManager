@@ -142,6 +142,29 @@ export default function AdminPanel() {
     },
   });
 
+  // Activación del módulo premium de Datos Personales (LOPDP)
+  const toggleLopdpMutation = useMutation({
+    mutationFn: async ({ companyId, enabled }: any) => {
+      return apiRequest("PUT", `/api/admin/companies/${companyId}/lopdp`, { enabled });
+    },
+    onSuccess: (_data, variables: any) => {
+      toast({
+        title: variables.enabled ? "Módulo LOPDP activado" : "Módulo LOPDP desactivado",
+        description: variables.enabled
+          ? "La empresa ya puede usar el módulo de Datos Personales."
+          : "La empresa verá la página de presentación del módulo.",
+      });
+      queryClient.invalidateQueries(["/api/admin/companies"]);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "No se pudo cambiar el módulo de Datos Personales",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Toggle company status mutation
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ companyId, isActive }: any) => {
@@ -440,6 +463,19 @@ export default function AdminPanel() {
                               <span className="text-sm">
                                 {company.isActive ? 'Activa' : 'Inactiva'}
                               </span>
+                            </div>
+
+                            {/* Módulo premium de Datos Personales (LOPDP) */}
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                checked={company.lopdpEnabled === true}
+                                onCheckedChange={(checked) =>
+                                  toggleLopdpMutation.mutate({ companyId: company.id, enabled: checked })
+                                }
+                                disabled={toggleLopdpMutation.isPending}
+                                data-testid={`switch-lopdp-${company.id}`}
+                              />
+                              <span className="text-sm">LOPDP</span>
                             </div>
 
                             {/* Status Indicator */}

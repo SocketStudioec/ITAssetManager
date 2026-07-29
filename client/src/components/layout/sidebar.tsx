@@ -23,6 +23,12 @@ import {
   BellRing,
   PanelLeftClose,
   PanelLeftOpen,
+  ShieldCheck,
+  ClipboardList,
+  ScrollText,
+  AlertTriangle,
+  Gavel,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,6 +56,17 @@ const assetChildren = [
 
 // Rutas antiguas que viven dentro del grupo Activos IT (redirigen a /subscriptions)
 const legacyAssetPaths = ["/applications", "/licenses"];
+
+// Módulo premium de Datos Personales (LOPDP)
+const lopdpChildren = [
+  { path: "/lopdp", icon: ShieldCheck, label: "Panel LOPDP" },
+  { path: "/lopdp/perfil", icon: UserCog, label: "Perfil de la empresa" },
+  { path: "/lopdp/clasificacion", icon: ClipboardList, label: "Clasificación" },
+  { path: "/lopdp/riesgos", icon: AlertTriangle, label: "Riesgos" },
+  { path: "/lopdp/plan", icon: Boxes, label: "Plan de acción" },
+  { path: "/lopdp/documentos", icon: ScrollText, label: "Documentos" },
+  { path: "/lopdp/defensa", icon: Gavel, label: "Modo Defensa" },
+];
 
 function getInitials(name?: string) {
   if (!name) {
@@ -81,6 +98,9 @@ export default function Sidebar({ selectedCompanyId, onCompanyChange, showAdminP
   const isAssetSection =
     assetChildren.some((child) => child.path === location) || legacyAssetPaths.includes(location);
   const [assetsOpen, setAssetsOpen] = useState(true);
+
+  const isLopdpSection = location.startsWith("/lopdp");
+  const [lopdpOpen, setLopdpOpen] = useState(isLopdpSection);
 
   useEffect(() => {
     try {
@@ -378,6 +398,72 @@ export default function Sidebar({ selectedCompanyId, onCompanyChange, showAdminP
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Grupo: Datos personales (LOPDP) — módulo premium */}
+          {collapsed ? (
+            <div className="space-y-1 py-2">
+              <div className="py-1" data-testid="nav-group-datos-personales">
+                <Separator />
+              </div>
+              {lopdpChildren.map((item) => (
+                <div key={item.path}>
+                  {renderNavItem({
+                    path: item.path,
+                    icon: item.icon,
+                    label: item.label,
+                    isActive: location === item.path,
+                    testId: `nav-lopdp-${item.path.split("/").pop()}`,
+                  })}
+                </div>
+              ))}
+              <div className="pt-1">
+                <Separator />
+              </div>
+            </div>
+          ) : (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setLopdpOpen((open) => !open)}
+                className={cn(
+                  "flex h-10 w-full cursor-pointer items-center justify-between rounded-md px-3 text-xs font-semibold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                  isLopdpSection
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                aria-expanded={lopdpOpen}
+                data-testid="nav-group-datos-personales"
+              >
+                <span className="flex items-center">
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                  Datos personales
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200",
+                    lopdpOpen ? "rotate-0" : "-rotate-90",
+                  )}
+                />
+              </button>
+
+              {lopdpOpen && (
+                <div className="ml-4 mt-1 space-y-1 border-l border-border pl-2">
+                  {lopdpChildren.map((item) => (
+                    <div key={item.path}>
+                      {renderNavItem({
+                        path: item.path,
+                        icon: item.icon,
+                        label: item.label,
+                        isActive: location === item.path,
+                        testId: `nav-lopdp-${item.path.split("/").pop()}`,
+                        smallIcon: true,
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

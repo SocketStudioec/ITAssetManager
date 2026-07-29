@@ -18,6 +18,14 @@ import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
 import AdminPanel from "@/pages/admin";
 import PublicAsset from "@/pages/public-asset";
+// Módulo premium de Datos Personales (LOPDP)
+import LopdpPanel from "@/pages/lopdp/panel";
+import LopdpPerfil from "@/pages/lopdp/perfil";
+import LopdpClasificacion from "@/pages/lopdp/clasificacion";
+import LopdpRiesgos from "@/pages/lopdp/riesgos";
+import LopdpPlan from "@/pages/lopdp/plan";
+import LopdpDocumentos from "@/pages/lopdp/documentos";
+import LopdpDefensa from "@/pages/lopdp/defensa";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -47,6 +55,14 @@ function Router() {
           <Route path="/maintenance" component={Maintenance} />
           <Route path="/expirations" component={Expirations} />
           <Route path="/reports" component={Reports} />
+          {/* Datos personales (LOPDP) — módulo premium */}
+          <Route path="/lopdp" component={LopdpPanel} />
+          <Route path="/lopdp/perfil" component={LopdpPerfil} />
+          <Route path="/lopdp/clasificacion" component={LopdpClasificacion} />
+          <Route path="/lopdp/riesgos" component={LopdpRiesgos} />
+          <Route path="/lopdp/plan" component={LopdpPlan} />
+          <Route path="/lopdp/documentos" component={LopdpDocumentos} />
+          <Route path="/lopdp/defensa" component={LopdpDefensa} />
           <Route path="/settings" component={Settings} />
           <Route path="/admin" component={AdminPanel} />
         </>

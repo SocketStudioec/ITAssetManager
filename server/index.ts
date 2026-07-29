@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { registerRedesignRoutes } from "./routes-redesign";
+import { registerLopdpRoutes } from "./routes-lopdp";
 import { serveStatic, log } from "./static";
 import { startNotificationScheduler } from "./scheduler";
 import { startBiweeklyScheduler } from "./biweekly-report";
@@ -56,6 +57,9 @@ process.on("uncaughtException", (err) => {
   // informes) y archivos subidos bajo /uploads. Deben registrarse ANTES del
   // manejador de errores y del catch-all de vite/static.
   registerRedesignRoutes(app);
+  // Módulo premium de Datos Personales (LOPDP): clasificación, motor de riesgos,
+  // documentos legales y Modo Defensa (solicitudes, incidentes, SPDP).
+  registerLopdpRoutes(app);
   mountUploads(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

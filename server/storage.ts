@@ -1315,6 +1315,8 @@ async logActivity(activity: {
       updatedAt: row.updated_at,
       userCount: Number(row.user_count || 0),
       assetCount: Number(row.asset_count || 0),
+      // Módulo premium de Datos Personales (migración 005)
+      lopdpEnabled: row.lopdp_enabled === true,
     }));
   }
 
