@@ -167,8 +167,13 @@ export default function LopdpPerfil() {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
 
+  // -1 = pantalla de bienvenida; luego 0 = datos de la empresa; después los bloques
+  const [stepIndex, setStepIndex] = useState(-1);
+  const [sector, setSector] = useState<DpSector>("otro");
+
+  // Los ejemplos se adaptan al sector apenas se elige, sin esperar a guardar.
   const { data: guide } = useQuery<Guide>({
-    queryKey: ["/api/dp", companyId, "guide"],
+    queryKey: [`/api/dp/${companyId}/guide?sector=${sector}`],
     enabled: Boolean(companyId),
   });
   const { data: profile } = useQuery<any>({
@@ -176,9 +181,6 @@ export default function LopdpPerfil() {
     enabled: Boolean(companyId),
   });
 
-  // -1 = pantalla de bienvenida; luego 0 = datos de la empresa; después los bloques
-  const [stepIndex, setStepIndex] = useState(-1);
-  const [sector, setSector] = useState<DpSector>("otro");
   const [legalRepName, setLegalRepName] = useState("");
   const [employeeCount, setEmployeeCount] = useState("");
   const [revenue, setRevenue] = useState("");

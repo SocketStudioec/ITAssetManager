@@ -544,13 +544,18 @@ export class LopdpStorage {
     return { ...base, toVerify };
   }
 
-  /** Cuestionario guiado adaptado al sector de la empresa. */
-  async getGuide(companyId: string): Promise<any> {
+  /**
+   * Cuestionario guiado adaptado al sector.
+   * `sectorOverride` permite que el asistente muestre los ejemplos del sector
+   * apenas el usuario lo elige, sin tener que guardar el perfil primero.
+   */
+  async getGuide(companyId: string, sectorOverride?: string): Promise<any> {
     const profile = await this.getProfile(companyId);
-    const guide = buildGuide((profile?.sector ?? "otro") as any);
+    const sector = sectorOverride || profile?.sector || "otro";
+    const guide = buildGuide(sector as any);
     return {
       ...guide,
-      sector: profile?.sector ?? null,
+      sector,
       answers: profile?.questionnaire ?? {},
       profileCompleted: Boolean(profile?.wizardCompletedAt),
     };

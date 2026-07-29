@@ -279,7 +279,8 @@ export function registerLopdpRoutes(app: Express): void {
     try {
       const userId = await guard(req, res);
       if (!userId) return;
-      res.json(await lopdpStorage.getGuide(req.params.companyId));
+      const sector = typeof req.query.sector === "string" ? req.query.sector : undefined;
+      res.json(await lopdpStorage.getGuide(req.params.companyId, sector));
     } catch (error) {
       handleError(res, error, "get guide");
     }
