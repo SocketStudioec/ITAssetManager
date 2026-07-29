@@ -252,6 +252,34 @@ export default function Interpretacion({ data }: { data: DpInterpretation }) {
         </Card>
       )}
 
+      {/* ---------- Lo que respondiste "No sé" ---------- */}
+      {data.toVerify && data.toVerify.length > 0 && (
+        <Card className="border-sky-500/40 bg-sky-50/50 dark:bg-sky-950/20">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Cosas que debes averiguar ({data.toVerify.length})
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Respondiste "No sé" a estas preguntas. Mientras no lo confirmes, la evaluación asume que no lo
+              tienes — es el criterio prudente y el mismo que aplica la autoridad: si no puedes demostrarlo,
+              no cuenta.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.toVerify.map((v) => (
+              <div key={v.key} className="rounded-lg border border-border bg-background p-3">
+                <p className="text-sm font-medium">{v.question}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{v.whatItMeans}</p>
+                <Badge variant="outline" className="mt-2">{v.legalBasis}</Badge>
+              </div>
+            ))}
+            <Button size="sm" variant="outline" asChild className="mt-2">
+              <Link href="/lopdp/perfil">Actualizar mis respuestas</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ---------- Qué hacer ahora ---------- */}
       {data.recommendations.length > 0 && (
         <Card>

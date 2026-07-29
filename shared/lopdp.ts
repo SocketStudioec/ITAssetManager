@@ -339,6 +339,13 @@ export interface DpInterpretation {
   }>;
   /** Cuántos puntos suman las acciones pendientes: ¿alcanza para llegar a la meta? */
   achievableScore: number;
+  /** Preguntas que el usuario respondió "No sé": trabajo de averiguación. */
+  toVerify?: Array<{
+    key: string;
+    question: string;
+    whatItMeans: string;
+    legalBasis: string;
+  }>;
 }
 
 export interface DpAssessmentBreakdown {

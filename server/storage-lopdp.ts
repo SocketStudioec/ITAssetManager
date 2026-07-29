@@ -25,6 +25,7 @@ import {
   VULNERABILITY_CATALOG,
   type ClassificationInput,
 } from "./lopdp/engine";
+import { buildGuide, unknownAnswers } from "./lopdp/education";
 import { renderDocument, type DocumentContext } from "./lopdp/templates";
 import { DP_DOC_LABELS, DP_REQUEST_TYPE_LABELS, type DpDocType } from "@shared/lopdp";
 
@@ -521,7 +522,7 @@ export class LopdpStorage {
         priority: num(a.priority),
       }));
 
-    return interpretAssessment({
+    const base = interpretAssessment({
       riskScore: num(assessment.riskScore),
       complianceScore: num(assessment.complianceScore),
       items: (assessment.breakdown?.compliance ?? []) as any[],
@@ -529,6 +530,30 @@ export class LopdpStorage {
       estimatedFineMax: num(assessment.estimatedFineMax),
       worstInfraction: assessment.worstInfraction ?? null,
     });
+
+    // Lo que el usuario respondió "No sé" no es un fallo suyo: es trabajo de
+    // averiguación con un siguiente paso concreto.
+    const profile = await this.getProfile(companyId);
+    const toVerify = unknownAnswers(profile?.questionnaire ?? {}).map((q) => ({
+      key: q.key,
+      question: q.question,
+      whatItMeans: q.whatItMeans,
+      legalBasis: q.legalBasis,
+    }));
+
+    return { ...base, toVerify };
+  }
+
+  /** Cuestionario guiado adaptado al sector de la empresa. */
+  async getGuide(companyId: string): Promise<any> {
+    const profile = await this.getProfile(companyId);
+    const guide = buildGuide((profile?.sector ?? "otro") as any);
+    return {
+      ...guide,
+      sector: profile?.sector ?? null,
+      answers: profile?.questionnaire ?? {},
+      profileCompleted: Boolean(profile?.wizardCompletedAt),
+    };
   }
 
   async getLatestAssessment(companyId: string): Promise<any | null> {

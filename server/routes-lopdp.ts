@@ -271,6 +271,20 @@ export function registerLopdpRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Cuestionario guiado: enseña los conceptos mientras se responde, con
+   * ejemplos del sector de la empresa. No exige conocer la ley.
+   */
+  app.get("/api/dp/:companyId/guide", isAuthenticated, async (req: AuthedRequest, res) => {
+    try {
+      const userId = await guard(req, res);
+      if (!userId) return;
+      res.json(await lopdpStorage.getGuide(req.params.companyId));
+    } catch (error) {
+      handleError(res, error, "get guide");
+    }
+  });
+
   app.get("/api/dp/:companyId/assessment/history", isAuthenticated, async (req: AuthedRequest, res) => {
     try {
       const userId = await guard(req, res);
