@@ -26,6 +26,9 @@ export interface User {
   lastName: string;
   profileImageUrl: string | null;
   role: UserRole;
+  /** TRUE mientras el usuario siga con la contraseña temporal que le puso el admin. */
+  mustChangePassword: boolean;
+  passwordUpdatedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

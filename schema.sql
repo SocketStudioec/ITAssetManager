@@ -493,6 +493,15 @@ ALTER TABLE company_notification_settings
   ADD COLUMN biweekly_report_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   ADD COLUMN report_recipient_emails TEXT NOT NULL DEFAULT '';
 
+-- ============================================================================
+-- MIGRACIÓN 006 (ya incorporada): reset de contraseña desde administración
+-- ============================================================================
+-- El super admin fija una contraseña temporal y la app obliga al usuario a
+-- cambiarla en su próximo ingreso.
+ALTER TABLE users
+  ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN password_updated_at TIMESTAMP;
+
 COMMENT ON TABLE asset_categories IS 'Categorías de activos por empresa con años de depreciación (norma Ecuador)';
 COMMENT ON TABLE asset_photos IS 'Fotos de activos, archivo físico en uploads/';
 COMMENT ON TABLE asset_custom_fields IS 'Campos personalizados nombre→valor por activo';

@@ -126,6 +126,8 @@ function mapUserFromDb(row: any): User | undefined {
     lastName: row.last_name,                      // snake_case → camelCase
     profileImageUrl: row.profile_image_url,       // snake_case → camelCase
     role: row.role,
+    mustChangePassword: row.must_change_password === true,
+    passwordUpdatedAt: row.password_updated_at ?? null,
     createdAt: row.created_at,                    // snake_case → camelCase
     updatedAt: row.updated_at,                    // snake_case → camelCase
   };
@@ -350,6 +352,90 @@ export class DatabaseStorage implements IStorage {
       [email, passwordHash, firstName, lastName, role]
     );
     return mapUserFromDb(result.rows[0])!;
+  }
+
+  /**
+   * LISTA DE USUARIOS PARA EL PANEL DE ADMINISTRACIÓN
+   *
+   * Devuelve todos los usuarios con las empresas a las que pertenecen, para
+   * que el super admin pueda buscarlos y restablecerles la contraseña.
+   * NUNCA incluye el hash de la contraseña.
+   */
+  async getAllUsersForAdmin(): Promise<
+    {
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      role: string;
+      mustChangePassword: boolean;
+      passwordUpdatedAt: Date | null;
+      createdAt: Date;
+      companies: string[];
+    }[]
+  > {
+    const result = await pool.query(
+      `SELECT
+         u.id,
+         u.email,
+         u.first_name,
+         u.last_name,
+         u.role,
+         u.must_change_password,
+         u.password_updated_at,
+         u.created_at,
+         COALESCE(
+           ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.name), NULL),
+           '{}'
+         ) AS companies
+       FROM users u
+       LEFT JOIN user_companies uc ON uc.user_id = u.id
+       LEFT JOIN companies c ON c.id = uc.company_id
+       GROUP BY u.id
+       ORDER BY LOWER(u.first_name), LOWER(u.last_name), u.email`
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      role: row.role,
+      mustChangePassword: row.must_change_password === true,
+      passwordUpdatedAt: row.password_updated_at ?? null,
+      createdAt: row.created_at,
+      companies: Array.isArray(row.companies) ? row.companies : [],
+    }));
+  }
+
+  /**
+   * FIJAR LA CONTRASEÑA DE UN USUARIO
+   *
+   * La usan tanto el reset del administrador (mustChangePassword = true, para
+   * obligar al usuario a definir la suya al entrar) como el cambio que hace el
+   * propio usuario (mustChangePassword = false).
+   *
+   * @param userId - Usuario al que se le cambia la contraseña
+   * @param passwordHash - Hash ya calculado con passwordUtils.hash()
+   * @param mustChangePassword - Si debe cambiarla en el próximo ingreso
+   */
+  async setUserPassword(
+    userId: string,
+    passwordHash: string,
+    mustChangePassword: boolean
+  ): Promise<User | undefined> {
+    const result = await pool.query(
+      `UPDATE users
+         SET password_hash = $2,
+             must_change_password = $3,
+             password_updated_at = NOW(),
+             updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [userId, passwordHash, mustChangePassword]
+    );
+
+    return mapUserFromDb(result.rows[0]);
   }
 
   // ==========================================================================
@@ -1275,6 +1361,9 @@ async logActivity(activity: {
         lastName: row['user.last_name'],
         profileImageUrl: row['user.profile_image_url'],
         role: row['user.role'],
+        // El log de actividad no necesita el estado de la contraseña
+        mustChangePassword: false,
+        passwordUpdatedAt: null,
         createdAt: row['user.created_at'],
         updatedAt: row['user.updated_at'],
       }

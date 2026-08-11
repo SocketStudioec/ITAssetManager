@@ -31,6 +31,8 @@ declare global{
         firstName: string;
         lastName: string;
         role: string;
+        /** TRUE si entró con una contraseña temporal puesta por el administrador. */
+        mustChangePassword?: boolean;
       };
     }
   }
@@ -98,6 +100,45 @@ export function isAuthenticated(
 }
 
 /**
+ * Rutas que un usuario con contraseña temporal SÍ puede usar: las necesita
+ * justamente para poder cambiarla o para salir.
+ */
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
+  "/api/login",
+  "/api/logout",
+  "/api/me",
+  "/api/auth/user",
+  "/api/auth/change-password",
+]);
+
+/**
+ * Middleware global: si el usuario entró con la contraseña temporal que le puso
+ * el administrador, no puede tocar el resto de la API hasta definir una nueva.
+ *
+ * El frontend detecta el código PASSWORD_CHANGE_REQUIRED (o el campo
+ * mustChangePassword de /api/auth/user) y muestra el diálogo de cambio.
+ */
+export function blockUntilPasswordChanged(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (
+    !req.user?.mustChangePassword ||
+    !req.path.startsWith("/api/") ||
+    PASSWORD_CHANGE_ALLOWED_PATHS.has(req.path)
+  ) {
+    return next();
+  }
+
+  return res.status(403).json({
+    code: "PASSWORD_CHANGE_REQUIRED",
+    message:
+      "Debe definir una contraseña nueva antes de seguir usando el sistema.",
+  });
+}
+
+/**
  * Utilidades de hash para contraseñas con SHA256
  */
 export const passwordUtils = {
@@ -143,6 +184,8 @@ export const jwtUtils = {
       firstName: payload.firstName,
       lastName: payload.lastName,
       role: payload.role,
+      //Obliga a cambiar la clave temporal que puso el administrador
+      ...(payload.mustChangePassword && { mustChangePassword: true }),
       //Incluir otros campos si es necesario(SupportMode)
       ...(payload.supportMode && { supportMode: payload.supportMode }),
     };

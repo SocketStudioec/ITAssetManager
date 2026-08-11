@@ -26,6 +26,22 @@ import LopdpRiesgos from "@/pages/lopdp/riesgos";
 import LopdpPlan from "@/pages/lopdp/plan";
 import LopdpDocumentos from "@/pages/lopdp/documentos";
 import LopdpDefensa from "@/pages/lopdp/defensa";
+import ForcePasswordChange from "@/components/force-password-change";
+
+/**
+ * Si el usuario entró con la contraseña temporal que le puso el administrador,
+ * se le muestra el diálogo de cambio sobre la app. El backend además bloquea
+ * la API (403 PASSWORD_CHANGE_REQUIRED) hasta que la cambie.
+ */
+function PasswordGate() {
+  const { user, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated || !(user as any)?.mustChangePassword) {
+    return null;
+  }
+
+  return <ForcePasswordChange />;
+}
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -77,6 +93,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
+        <PasswordGate />
         <Router />
       </TooltipProvider>
     </QueryClientProvider>

@@ -36,6 +36,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
+import UsersPanel from "@/components/admin/users-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -505,6 +506,9 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Gestión de usuarios: reset de contraseñas */}
+            <UsersPanel />
           </div>
         </main>
       </div>

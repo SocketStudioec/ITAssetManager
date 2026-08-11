@@ -122,7 +122,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { sendEmail, parseRecipients } from "./email";
-import { setupAuth, isAuthenticated, passwordUtils, jwtUtils, setJwtCookie, clearJwtCookie } from "./auth";
+import { setupAuth, isAuthenticated, blockUntilPasswordChanged, passwordUtils, jwtUtils, setJwtCookie, clearJwtCookie } from "./auth";
 import { redesignStorage } from "./storage-redesign";
 import {
   insertAssetSchema,
@@ -147,6 +147,10 @@ import { z } from "zod";
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar middleware de sesiones
   setupAuth(app);
+
+  // Quien entró con una contraseña temporal del admin no puede usar el resto
+  // de la API hasta definir la suya (ver POST /api/auth/change-password).
+  app.use(blockUntilPasswordChanged);
 
   // =============================================================================
   // RUTAS PÚBLICAS (sin autenticación)
@@ -340,10 +344,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        // Si el admin le puso una clave temporal, el token lo marca y el
+        // middleware blockUntilPasswordChanged le cierra el resto de la API.
+        mustChangePassword: user.mustChangePassword === true,
       });
       // PASO 5: Establecer JWT en cookie HTTP-only
       setJwtCookie(res, token);
-      
+
       // Respuesta exitosa (SIN password hash)
       res.json({
         message: "Login exitoso",
@@ -353,6 +360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
+          mustChangePassword: user.mustChangePassword === true,
         },
       });
     } catch (error: any) {
@@ -369,6 +377,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     //limpiar la cookie JWT
     clearJwtCookie(res);
     res.json({ message: "Sesión cerrada exitosamente" });
+  });
+
+  /**
+   * POST /api/auth/change-password
+   * Cambio de contraseña del usuario autenticado.
+   *
+   * DOS ESCENARIOS:
+   * 1. El admin le puso una contraseña temporal (mustChangePassword = true):
+   *    solo pide la contraseña nueva, porque el usuario acaba de autenticarse
+   *    con la temporal en esta misma sesión.
+   * 2. Cambio voluntario: exige la contraseña actual para confirmar identidad.
+   *
+   * Al terminar apaga la marca must_change_password y reemite el JWT, de modo
+   * que el middleware blockUntilPasswordChanged deja de bloquear la API.
+   */
+  app.post('/api/auth/change-password', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentPassword = typeof req.body?.currentPassword === 'string'
+        ? req.body.currentPassword
+        : '';
+      const newPassword = typeof req.body?.newPassword === 'string'
+        ? req.body.newPassword
+        : '';
+
+      if (newPassword.trim().length < 6) {
+        return res.status(400).json({
+          message: "La contraseña nueva debe tener al menos 6 caracteres",
+        });
+      }
+
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(404).json({ message: "Usuario no encontrado" });
+      }
+
+      // Cambio voluntario: hay que probar que conoce la contraseña actual
+      if (!user.mustChangePassword) {
+        if (!currentPassword || !passwordUtils.verify(currentPassword, user.passwordHash)) {
+          return res.status(400).json({
+            message: "La contraseña actual no es correcta",
+          });
+        }
+      }
+
+      if (passwordUtils.verify(newPassword, user.passwordHash)) {
+        return res.status(400).json({
+          message: "La contraseña nueva debe ser distinta de la actual",
+        });
+      }
+
+      await storage.setUserPassword(
+        user.id,
+        passwordUtils.hash(newPassword),
+        false
+      );
+
+      // Reemitir el token ya sin la marca de contraseña temporal
+      const token = jwtUtils.generateToken({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+      });
+      setJwtCookie(res, token);
+
+      console.log(`[auth] ${user.email} cambió su contraseña.`);
+
+      res.json({
+        ok: true,
+        message: "Contraseña actualizada correctamente",
+      });
+    } catch (error) {
+      console.error("Error cambiando la contraseña:", error);
+      res.status(500).json({ message: "No se pudo cambiar la contraseña" });
+    }
   });
 
   // =============================================================================
@@ -1273,6 +1357,82 @@ app.delete('/api/assets/:id/:companyId', isAuthenticated, async (req: any, res) 
     } catch (error) {
       console.error("Error updating company status:", error);
       res.status(500).json({ message: "Failed to update company status" });
+    }
+  });
+
+  /**
+   * GET /api/admin/users
+   * Lista de usuarios del sistema para el panel de administración.
+   * Incluye las empresas de cada uno y si tiene una contraseña temporal
+   * pendiente de cambio. NUNCA devuelve hashes de contraseña.
+   */
+  app.get('/api/admin/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.userId);
+      if (user?.role !== 'super_admin') {
+        return res.status(403).json({ message: "Access denied. Super admin required." });
+      }
+
+      const users = await storage.getAllUsersForAdmin();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  /**
+   * POST /api/admin/users/:userId/reset-password
+   * El super admin le fija a un usuario la contraseña que él escriba.
+   *
+   * BODY:
+   *   password: string        // contraseña temporal (mínimo 6 caracteres)
+   *   requireChange?: boolean // true (por defecto) = se la pide cambiar al entrar
+   *
+   * El usuario podrá iniciar sesión con esa contraseña, pero si requireChange
+   * es true no podrá usar el sistema hasta definir una nueva.
+   */
+  app.post('/api/admin/users/:userId/reset-password', isAuthenticated, async (req: any, res) => {
+    try {
+      const admin = await storage.getUser(req.user.userId);
+      if (admin?.role !== 'super_admin') {
+        return res.status(403).json({ message: "Access denied. Super admin required." });
+      }
+
+      const { userId } = req.params;
+      const password = typeof req.body?.password === 'string' ? req.body.password : '';
+      const requireChange = req.body?.requireChange !== false;
+
+      if (password.trim().length < 6) {
+        return res.status(400).json({
+          message: "La contraseña debe tener al menos 6 caracteres",
+        });
+      }
+
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Usuario no encontrado" });
+      }
+
+      await storage.setUserPassword(
+        userId,
+        passwordUtils.hash(password),
+        requireChange
+      );
+
+      console.log(
+        `[admin] ${admin.email} restableció la contraseña de ${targetUser.email}` +
+        `${requireChange ? ' (debe cambiarla al ingresar)' : ''}.`
+      );
+
+      res.json({
+        ok: true,
+        message: `Contraseña actualizada para ${targetUser.email}`,
+        mustChangePassword: requireChange,
+      });
+    } catch (error) {
+      console.error("Error resetting user password:", error);
+      res.status(500).json({ message: "No se pudo restablecer la contraseña" });
     }
   });
 
