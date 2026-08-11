@@ -1,31 +1,23 @@
 import PDFDocument from "pdfkit";
 import { ECUADOR_DEPRECIATION_NOTE } from "./depreciation";
+import {
+  applicationMonthly,
+  buildProviderSummary,
+  groupByProvider,
+  physicalAssetMonthly,
+  type BiweeklyData,
+  type ReportApplicationRow,
+  type ReportPhysicalAssetRow,
+} from "./report-summary";
 
-export interface BiweeklyData {
-  applications: {
-    name: string;
-    purpose: string;
-    monthlyCost: number;
-  }[];
-  physicalAssets: {
-    name: string;
-    assetCode: string;
-    assignedTo: string;
-    monthlyDepreciation: number;
-    maintenanceMonthly: number;
-  }[];
-  totals: {
-    applicationsMonthly: number;
-    physicalMonthly: number;
-    grandTotal: number;
-  };
-}
+export type { BiweeklyData };
 
 const COLORS = {
   heading: "#0f172a",
   text: "#334155",
   line: "#e2e8f0",
   tableHeader: "#f1f5f9",
+  providerBand: "#e2e8f0",
   alternateRow: "#f8fafc",
   footer: "#64748b",
   white: "#ffffff",
@@ -33,6 +25,38 @@ const COLORS = {
 
 const PAGE_MARGIN = 50;
 const CONTENT_BOTTOM_MARGIN = 90;
+const CONTENT_WIDTH = 495;
+
+interface Column {
+  label: string;
+  width: number;
+  align?: "left" | "right";
+  /** Las columnas numéricas no envuelven texto. */
+  numeric?: boolean;
+}
+
+const SUMMARY_COLUMNS: Column[] = [
+  { label: "Proveedor", width: 160 },
+  { label: "Items", width: 40, align: "right", numeric: true },
+  { label: "Servicios", width: 85, align: "right", numeric: true },
+  { label: "Equipos", width: 85, align: "right", numeric: true },
+  { label: "Total mensual", width: 75, align: "right", numeric: true },
+  { label: "% total", width: 50, align: "right", numeric: true },
+];
+
+const APPLICATION_COLUMNS: Column[] = [
+  { label: "Nombre", width: 160 },
+  { label: "Motivo", width: 235 },
+  { label: "Valor mensual", width: 100, align: "right", numeric: true },
+];
+
+const PHYSICAL_COLUMNS: Column[] = [
+  { label: "Equipo", width: 150 },
+  { label: "Codigo", width: 80 },
+  { label: "Responsable", width: 110 },
+  { label: "Dep. mensual", width: 77, align: "right", numeric: true },
+  { label: "Mant. mensual", width: 78, align: "right", numeric: true },
+];
 
 function formatMoney(value: unknown): string {
   const number = Number(value);
@@ -44,6 +68,16 @@ function formatMoney(value: unknown): string {
       maximumFractionDigits: 2,
     }
   )}`;
+}
+
+function formatPercent(value: unknown): string {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "";
+  }
+
+  return `${number.toFixed(1)}%`;
 }
 
 function normalizeText(value: unknown, fallback = "—"): string {
@@ -127,59 +161,56 @@ export async function buildBiweeklyReportPdf(
       }
     };
 
-    const drawSectionTitle = (title: string): void => {
-      ensureSpace(34);
+    const totalWidth = (columns: Column[]): number =>
+      columns.reduce((total, column) => total + column.width, 0);
+
+    const drawSectionTitle = (title: string, subtitle?: string): void => {
+      ensureSpace(subtitle ? 48 : 34);
 
       doc
         .font("Helvetica-Bold")
         .fontSize(12)
         .fillColor(COLORS.heading)
-        .text(title, PAGE_MARGIN, doc.y, {
-          width: doc.page.width - PAGE_MARGIN * 2,
-        });
+        .text(title, PAGE_MARGIN, doc.y, { width: CONTENT_WIDTH });
+
+      if (subtitle) {
+        doc
+          .font("Helvetica")
+          .fontSize(8.5)
+          .fillColor(COLORS.footer)
+          .text(subtitle, PAGE_MARGIN, doc.y + 2, {
+            width: CONTENT_WIDTH,
+          });
+      }
 
       doc.moveDown(0.55);
+      doc.x = PAGE_MARGIN;
     };
 
-    const drawApplicationsHeader = (): void => {
+    const drawTableHeader = (columns: Column[]): void => {
       const x = PAGE_MARGIN;
       const y = doc.y;
       const height = 26;
-      const widths = [150, 220, 90];
+      const width = totalWidth(columns);
 
-      doc
-        .rect(x, y, widths.reduce((total, width) => total + width, 0), height)
-        .fill(COLORS.tableHeader);
+      doc.rect(x, y, width, height).fill(COLORS.tableHeader);
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor(COLORS.heading);
 
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(8.5)
-        .fillColor(COLORS.heading)
-        .text("Nombre", x + 6, y + 8, {
-          width: widths[0] - 12,
+      let currentX = x;
+
+      for (const column of columns) {
+        doc.text(column.label, currentX + 6, y + 8, {
+          width: column.width - 12,
           height: 12,
+          align: column.align ?? "left",
           lineBreak: false,
-        })
-        .text("Motivo", x + widths[0] + 6, y + 8, {
-          width: widths[1] - 12,
-          height: 12,
-          lineBreak: false,
-        })
-        .text(
-          "Valor mensual",
-          x + widths[0] + widths[1] + 6,
-          y + 8,
-          {
-            width: widths[2] - 12,
-            height: 12,
-            align: "right",
-            lineBreak: false,
-          }
-        );
+        });
+        currentX += column.width;
+      }
 
       doc
         .moveTo(x, y + height)
-        .lineTo(x + widths.reduce((total, width) => total + width, 0), y + height)
+        .lineTo(x + width, y + height)
         .lineWidth(0.5)
         .strokeColor(COLORS.line)
         .stroke();
@@ -188,59 +219,137 @@ export async function buildBiweeklyReportPdf(
       doc.x = PAGE_MARGIN;
     };
 
-    const drawPhysicalAssetsHeader = (): void => {
-      const x = PAGE_MARGIN;
-      const y = doc.y;
-      const height = 28;
-      const widths = [150, 75, 110, 70, 70];
+    /** Fila de datos con alto dinámico según el texto que envuelve. */
+    const drawRow = (
+      columns: Column[],
+      values: string[],
+      options: {
+        striped?: boolean;
+        repeatHeader?: () => void;
+        fontSize?: number;
+      } = {}
+    ): void => {
+      const fontSize = options.fontSize ?? 9;
+      const width = totalWidth(columns);
 
-      doc
-        .rect(x, y, widths.reduce((total, width) => total + width, 0), height)
-        .fill(COLORS.tableHeader);
+      doc.font("Helvetica").fontSize(fontSize);
 
-      let currentX = x;
-      const headers = [
-        { text: "Equipo", width: widths[0], align: "left" as const },
-        { text: "Codigo", width: widths[1], align: "left" as const },
-        { text: "Responsable", width: widths[2], align: "left" as const },
-        { text: "Dep. mensual", width: widths[3], align: "right" as const },
-        { text: "Mant. mensual", width: widths[4], align: "right" as const },
-      ];
+      let rowHeight = 26;
 
-      doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.heading);
+      columns.forEach((column, index) => {
+        if (column.numeric) {
+          return;
+        }
 
-      for (const header of headers) {
-        doc.text(header.text, currentX + 5, y + 8, {
-          width: header.width - 10,
-          height: 14,
-          align: header.align,
-          lineBreak: false,
+        const height = doc.heightOfString(values[index] ?? "", {
+          width: column.width - 12,
+          lineGap: 1,
         });
-        currentX += header.width;
+
+        rowHeight = Math.max(rowHeight, height + 12);
+      });
+
+      if (doc.y + rowHeight > contentBottom()) {
+        doc.addPage();
+        options.repeatHeader?.();
       }
 
+      const x = PAGE_MARGIN;
+      const y = doc.y;
+
+      if (options.striped) {
+        doc.rect(x, y, width, rowHeight).fill(COLORS.alternateRow);
+      }
+
+      doc.font("Helvetica").fontSize(fontSize).fillColor(COLORS.text);
+
+      let currentX = x;
+
+      columns.forEach((column, index) => {
+        doc.text(values[index] ?? "", currentX + 6, y + 6, {
+          width: column.width - 12,
+          height: rowHeight - 10,
+          align: column.align ?? "left",
+          lineGap: 1,
+          lineBreak: !column.numeric,
+        });
+        currentX += column.width;
+      });
+
       doc
-        .moveTo(x, y + height)
-        .lineTo(x + widths.reduce((total, width) => total + width, 0), y + height)
+        .moveTo(x, y + rowHeight)
+        .lineTo(x + width, y + rowHeight)
         .lineWidth(0.5)
         .strokeColor(COLORS.line)
         .stroke();
+
+      doc.y = y + rowHeight;
+      doc.x = PAGE_MARGIN;
+    };
+
+    /** Banda que abre el bloque de un proveedor dentro del detalle. */
+    const drawProviderBand = (
+      columns: Column[],
+      provider: string,
+      monthlyTotal: number,
+      itemsLabel: string,
+      repeatHeader: () => void
+    ): void => {
+      const width = totalWidth(columns);
+      const height = 24;
+
+      if (doc.y + height + 26 > contentBottom()) {
+        doc.addPage();
+        repeatHeader();
+      }
+
+      const x = PAGE_MARGIN;
+      const y = doc.y;
+
+      doc.rect(x, y, width, height).fill(COLORS.providerBand);
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .fillColor(COLORS.heading)
+        .text(normalizeText(provider), x + 7, y + 7, {
+          width: width - 200,
+          height: 12,
+          lineBreak: false,
+        })
+        .font("Helvetica")
+        .fontSize(8)
+        .fillColor(COLORS.text)
+        .text(itemsLabel, x + width - 190, y + 8, {
+          width: 85,
+          height: 11,
+          align: "right",
+          lineBreak: false,
+        })
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .fillColor(COLORS.heading)
+        .text(`${formatMoney(monthlyTotal)} / mes`, x + width - 100, y + 7, {
+          width: 93,
+          height: 12,
+          align: "right",
+          lineBreak: false,
+        });
 
       doc.y = y + height;
       doc.x = PAGE_MARGIN;
     };
 
     const drawSubtotal = (
+      columns: Column[],
       label: string,
       value: unknown,
-      width: number,
       repeatHeader: () => void
     ): void => {
+      const width = totalWidth(columns);
       const height = 28;
 
       if (doc.y + height > contentBottom()) {
         doc.addPage();
-        drawFooter();
         repeatHeader();
       }
 
@@ -268,8 +377,44 @@ export async function buildBiweeklyReportPdf(
       doc.x = PAGE_MARGIN;
     };
 
+    const drawEmptyRow = (columns: Column[]): void => {
+      const width = totalWidth(columns);
+      const height = 30;
+
+      ensureSpace(height);
+
+      const y = doc.y;
+
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(COLORS.footer)
+        .text(
+          "No hay registros activos para esta seccion.",
+          PAGE_MARGIN + 6,
+          y + 9,
+          {
+            width: width - 12,
+            height: 12,
+            align: "center",
+            lineBreak: false,
+          }
+        );
+
+      doc
+        .moveTo(PAGE_MARGIN, y + height)
+        .lineTo(PAGE_MARGIN + width, y + height)
+        .lineWidth(0.5)
+        .strokeColor(COLORS.line)
+        .stroke();
+
+      doc.y = y + height;
+      doc.x = PAGE_MARGIN;
+    };
+
     try {
       const pageWidth = doc.page.width;
+      const providers = buildProviderSummary(data);
 
       doc.rect(0, 0, pageWidth, 70).fill(COLORS.heading);
       doc
@@ -304,7 +449,7 @@ export async function buildBiweeklyReportPdf(
         .fontSize(13)
         .fillColor(COLORS.heading)
         .text(normalizeText(companyName, "Empresa"), PAGE_MARGIN, doc.y, {
-          width: pageWidth - PAGE_MARGIN * 2,
+          width: CONTENT_WIDTH,
         });
 
       doc.moveDown(0.55);
@@ -318,258 +463,180 @@ export async function buildBiweeklyReportPdf(
 
       drawFooter();
 
-      drawSectionTitle("Aplicaciones y licencias");
-      drawApplicationsHeader();
+      // ----------------------------------------------------------------
+      // 1. Resumen por proveedor (mismo que va en el cuerpo del correo)
+      // ----------------------------------------------------------------
+      const repeatSummaryHeader = (): void =>
+        drawTableHeader(SUMMARY_COLUMNS);
 
-      if (data.applications.length === 0) {
-        const rowHeight = 30;
+      drawSectionTitle(
+        "Resumen por proveedor",
+        "Gasto mensual consolidado de cada proveedor que nos presta servicio."
+      );
+      repeatSummaryHeader();
 
-        if (doc.y + rowHeight > contentBottom()) {
-          doc.addPage();
-          drawApplicationsHeader();
-        }
-
-        const rowY = doc.y;
-        doc
-          .font("Helvetica")
-          .fontSize(9)
-          .fillColor(COLORS.footer)
-          .text("No hay registros activos para esta sección.", PAGE_MARGIN + 6, rowY + 9, {
-            width: 448,
-            height: 12,
-            align: "center",
-            lineBreak: false,
-          });
-
-        doc
-          .moveTo(PAGE_MARGIN, rowY + rowHeight)
-          .lineTo(PAGE_MARGIN + 460, rowY + rowHeight)
-          .lineWidth(0.5)
-          .strokeColor(COLORS.line)
-          .stroke();
-
-        doc.y = rowY + rowHeight;
+      if (providers.length === 0) {
+        drawEmptyRow(SUMMARY_COLUMNS);
       } else {
-        data.applications.forEach((application, index) => {
-          const widths = [150, 220, 90];
-          const name = normalizeText(application.name);
-          const purpose = normalizeText(application.purpose);
+        providers.forEach((row, index) => {
+          drawRow(
+            SUMMARY_COLUMNS,
+            [
+              normalizeText(row.provider),
+              String(row.items),
+              row.servicesMonthly > 0
+                ? formatMoney(row.servicesMonthly)
+                : "—",
+              row.physicalMonthly > 0
+                ? formatMoney(row.physicalMonthly)
+                : "—",
+              formatMoney(row.totalMonthly),
+              formatPercent(row.share) || "—",
+            ],
+            {
+              striped: index % 2 === 1,
+              repeatHeader: repeatSummaryHeader,
+              fontSize: 8.5,
+            }
+          );
+        });
+      }
 
-          doc.font("Helvetica").fontSize(9);
-          const nameHeight = doc.heightOfString(name, {
-            width: widths[0] - 12,
-            lineGap: 1,
-          });
-          const purposeHeight = doc.heightOfString(purpose, {
-            width: widths[1] - 12,
-            lineGap: 1,
-          });
-          const rowHeight = Math.max(26, nameHeight + 12, purposeHeight + 12);
+      drawSubtotal(
+        SUMMARY_COLUMNS,
+        "Gasto mensual total en tecnologia",
+        data.totals.grandTotal,
+        repeatSummaryHeader
+      );
 
-          if (doc.y + rowHeight > contentBottom()) {
-            doc.addPage();
-            drawApplicationsHeader();
-          }
+      // ----------------------------------------------------------------
+      // 2. Detalle de aplicaciones y licencias, agrupado por proveedor
+      // ----------------------------------------------------------------
+      const repeatApplicationHeader = (): void =>
+        drawTableHeader(APPLICATION_COLUMNS);
 
-          const x = PAGE_MARGIN;
-          const y = doc.y;
+      doc.y += 26;
+      drawSectionTitle(
+        "Detalle: aplicaciones y licencias",
+        "Cada servicio contratado con su proveedor y motivo."
+      );
+      repeatApplicationHeader();
 
-          if (index % 2 === 1) {
-            doc.rect(x, y, 460, rowHeight).fill(COLORS.alternateRow);
-          }
+      const applicationGroups = groupByProvider<ReportApplicationRow>(
+        data.applications,
+        applicationMonthly
+      );
 
-          doc
-            .font("Helvetica")
-            .fontSize(9)
-            .fillColor(COLORS.text)
-            .text(name, x + 6, y + 6, {
-              width: widths[0] - 12,
-              height: rowHeight - 12,
-              lineGap: 1,
-            })
-            .text(purpose, x + widths[0] + 6, y + 6, {
-              width: widths[1] - 12,
-              height: rowHeight - 12,
-              lineGap: 1,
-            })
-            .text(
-              formatMoney(application.monthlyCost),
-              x + widths[0] + widths[1] + 6,
-              y + 7,
+      if (applicationGroups.length === 0) {
+        drawEmptyRow(APPLICATION_COLUMNS);
+      } else {
+        for (const group of applicationGroups) {
+          drawProviderBand(
+            APPLICATION_COLUMNS,
+            group.provider,
+            group.monthlyTotal,
+            `${group.items.length} ${
+              group.items.length === 1 ? "servicio" : "servicios"
+            }`,
+            repeatApplicationHeader
+          );
+
+          group.items.forEach((application, index) => {
+            drawRow(
+              APPLICATION_COLUMNS,
+              [
+                normalizeText(application.name),
+                normalizeText(application.purpose),
+                formatMoney(application.monthlyCost),
+              ],
               {
-                width: widths[2] - 12,
-                height: rowHeight - 12,
-                align: "right",
-                lineBreak: false,
+                striped: index % 2 === 1,
+                repeatHeader: repeatApplicationHeader,
               }
             );
-
-          doc
-            .moveTo(x, y + rowHeight)
-            .lineTo(x + 460, y + rowHeight)
-            .lineWidth(0.5)
-            .strokeColor(COLORS.line)
-            .stroke();
-
-          doc.y = y + rowHeight;
-          doc.x = PAGE_MARGIN;
-        });
+          });
+        }
       }
 
       drawSubtotal(
+        APPLICATION_COLUMNS,
         "Subtotal aplicaciones y licencias",
         data.totals.applicationsMonthly,
-        460,
-        drawApplicationsHeader
+        repeatApplicationHeader
       );
 
-      doc.y += 24;
-      drawSectionTitle("Equipos fisicos");
-      drawPhysicalAssetsHeader();
+      // ----------------------------------------------------------------
+      // 3. Detalle de equipos fisicos, agrupado por proveedor / marca
+      // ----------------------------------------------------------------
+      const repeatPhysicalHeader = (): void =>
+        drawTableHeader(PHYSICAL_COLUMNS);
 
-      if (data.physicalAssets.length === 0) {
-        const rowHeight = 30;
+      doc.y += 26;
+      drawSectionTitle(
+        "Detalle: equipos fisicos",
+        "Depreciacion mensual y mantenimientos prorrateados por proveedor o marca."
+      );
+      repeatPhysicalHeader();
 
-        if (doc.y + rowHeight > contentBottom()) {
-          doc.addPage();
-          drawPhysicalAssetsHeader();
-        }
+      const physicalGroups = groupByProvider<ReportPhysicalAssetRow>(
+        data.physicalAssets,
+        physicalAssetMonthly
+      );
 
-        const rowY = doc.y;
-        doc
-          .font("Helvetica")
-          .fontSize(9)
-          .fillColor(COLORS.footer)
-          .text("No hay registros activos para esta sección.", PAGE_MARGIN + 6, rowY + 9, {
-            width: 463,
-            height: 12,
-            align: "center",
-            lineBreak: false,
-          });
-
-        doc
-          .moveTo(PAGE_MARGIN, rowY + rowHeight)
-          .lineTo(PAGE_MARGIN + 475, rowY + rowHeight)
-          .lineWidth(0.5)
-          .strokeColor(COLORS.line)
-          .stroke();
-
-        doc.y = rowY + rowHeight;
+      if (physicalGroups.length === 0) {
+        drawEmptyRow(PHYSICAL_COLUMNS);
       } else {
-        data.physicalAssets.forEach((asset, index) => {
-          const widths = [150, 75, 110, 70, 70];
-          const name = normalizeText(asset.name);
-          const assetCode = normalizeText(asset.assetCode);
-          const assignedTo = normalizeText(asset.assignedTo);
-
-          doc.font("Helvetica").fontSize(9);
-          const nameHeight = doc.heightOfString(name, {
-            width: widths[0] - 10,
-            lineGap: 1,
-          });
-          const assignedHeight = doc.heightOfString(assignedTo, {
-            width: widths[2] - 10,
-            lineGap: 1,
-          });
-          const rowHeight = Math.max(28, nameHeight + 12, assignedHeight + 12);
-
-          if (doc.y + rowHeight > contentBottom()) {
-            doc.addPage();
-            drawPhysicalAssetsHeader();
-          }
-
-          const x = PAGE_MARGIN;
-          const y = doc.y;
-
-          if (index % 2 === 1) {
-            doc.rect(x, y, 475, rowHeight).fill(COLORS.alternateRow);
-          }
-
-          let currentX = x;
-
-          doc
-            .font("Helvetica")
-            .fontSize(9)
-            .fillColor(COLORS.text)
-            .text(name, currentX + 5, y + 6, {
-              width: widths[0] - 10,
-              height: rowHeight - 12,
-              lineGap: 1,
-            });
-
-          currentX += widths[0];
-
-          doc.fontSize(8).text(assetCode, currentX + 5, y + 7, {
-            width: widths[1] - 10,
-            height: rowHeight - 12,
-            lineGap: 1,
-          });
-
-          currentX += widths[1];
-
-          doc.fontSize(8.5).text(assignedTo, currentX + 5, y + 6, {
-            width: widths[2] - 10,
-            height: rowHeight - 12,
-            lineGap: 1,
-          });
-
-          currentX += widths[2];
-
-          doc.fontSize(8).text(
-            formatMoney(asset.monthlyDepreciation),
-            currentX + 4,
-            y + 7,
-            {
-              width: widths[3] - 8,
-              height: rowHeight - 12,
-              align: "right",
-              lineBreak: false,
-            }
+        for (const group of physicalGroups) {
+          drawProviderBand(
+            PHYSICAL_COLUMNS,
+            group.provider,
+            group.monthlyTotal,
+            `${group.items.length} ${
+              group.items.length === 1 ? "equipo" : "equipos"
+            }`,
+            repeatPhysicalHeader
           );
 
-          currentX += widths[3];
-
-          doc.text(
-            formatMoney(asset.maintenanceMonthly),
-            currentX + 4,
-            y + 7,
-            {
-              width: widths[4] - 8,
-              height: rowHeight - 12,
-              align: "right",
-              lineBreak: false,
-            }
-          );
-
-          doc
-            .moveTo(x, y + rowHeight)
-            .lineTo(x + 475, y + rowHeight)
-            .lineWidth(0.5)
-            .strokeColor(COLORS.line)
-            .stroke();
-
-          doc.y = y + rowHeight;
-          doc.x = PAGE_MARGIN;
-        });
+          group.items.forEach((asset, index) => {
+            drawRow(
+              PHYSICAL_COLUMNS,
+              [
+                normalizeText(asset.name),
+                normalizeText(asset.assetCode),
+                normalizeText(asset.assignedTo),
+                formatMoney(asset.monthlyDepreciation),
+                formatMoney(asset.maintenanceMonthly),
+              ],
+              {
+                striped: index % 2 === 1,
+                repeatHeader: repeatPhysicalHeader,
+                fontSize: 8.5,
+              }
+            );
+          });
+        }
       }
 
       drawSubtotal(
+        PHYSICAL_COLUMNS,
         "Subtotal equipos fisicos",
         data.totals.physicalMonthly,
-        475,
-        drawPhysicalAssetsHeader
+        repeatPhysicalHeader
       );
 
+      // ----------------------------------------------------------------
+      // 4. Total general
+      // ----------------------------------------------------------------
       const totalBlockHeight = 72;
       doc.y += 26;
       ensureSpace(totalBlockHeight);
 
       const totalX = PAGE_MARGIN;
       const totalY = doc.y;
-      const totalWidth = doc.page.width - PAGE_MARGIN * 2;
+      const totalBlockWidth = doc.page.width - PAGE_MARGIN * 2;
 
       doc
-        .roundedRect(totalX, totalY, totalWidth, totalBlockHeight, 8)
+        .roundedRect(totalX, totalY, totalBlockWidth, totalBlockHeight, 8)
         .fill(COLORS.heading);
 
       doc
@@ -581,7 +648,7 @@ export async function buildBiweeklyReportPdf(
           totalX + 18,
           totalY + 16,
           {
-            width: totalWidth - 36,
+            width: totalBlockWidth - 36,
             height: 15,
             align: "center",
             lineBreak: false,
@@ -589,12 +656,17 @@ export async function buildBiweeklyReportPdf(
         )
         .font("Helvetica-Bold")
         .fontSize(20)
-        .text(formatMoney(data.totals.grandTotal), totalX + 18, totalY + 37, {
-          width: totalWidth - 36,
-          height: 24,
-          align: "center",
-          lineBreak: false,
-        });
+        .text(
+          formatMoney(data.totals.grandTotal),
+          totalX + 18,
+          totalY + 37,
+          {
+            width: totalBlockWidth - 36,
+            height: 24,
+            align: "center",
+            lineBreak: false,
+          }
+        );
 
       doc.y = totalY + totalBlockHeight;
       doc.end();

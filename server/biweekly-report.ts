@@ -8,6 +8,10 @@ import {
 } from "./email";
 import { ECUADOR_DEPRECIATION_NOTE } from "./depreciation";
 import { buildBiweeklyReportPdf } from "./report-pdf";
+import {
+  buildProviderSummary,
+  type ProviderSummaryRow,
+} from "./report-summary";
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STARTUP_DELAY_MS = 45 * 1000;
@@ -100,37 +104,61 @@ export function isBiweeklyReportDay(date: Date): boolean {
   return day === lastDayOfFebruary;
 }
 
+function formatPercent(value: number): string {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "—";
+  }
+
+  return `${number.toLocaleString("es-EC", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+function buildProviderBreakdown(row: ProviderSummaryRow): string {
+  const parts: string[] = [];
+
+  if (row.servicesMonthly > 0) {
+    parts.push(`servicios ${formatMoney(row.servicesMonthly)}`);
+  }
+
+  if (row.physicalMonthly > 0) {
+    parts.push(`equipos ${formatMoney(row.physicalMonthly)}`);
+  }
+
+  const items = `${row.items} ${row.items === 1 ? "ítem" : "ítems"}`;
+
+  return parts.length > 0
+    ? `${items} · ${parts.join(" · ")}`
+    : items;
+}
+
 export function buildBiweeklyReportHtml(
   companyName: string,
   data: Awaited<
     ReturnType<typeof redesignStorage.getBiweeklyReportData>
   >
 ): string {
-  const applicationRows =
-    data.applications.length > 0
-      ? data.applications
-          .map(
-            (application) => `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee"><strong>${esc(application.name)}</strong></td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(application.monthlyCost)}</td>
-        </tr>`
-          )
-          .join("")
-      : buildEmptyRow(2);
+  const providers = buildProviderSummary(data);
 
-  const physicalRows =
-    data.physicalAssets.length > 0
-      ? data.physicalAssets
+  const providerRows =
+    providers.length > 0
+      ? providers
           .map(
-            (asset) => `
+            (row) => `
         <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee"><strong>${esc(asset.name)}</strong></td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${formatMoney(Number(asset.monthlyDepreciation) + Number(asset.maintenanceMonthly))}</td>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee">
+            <strong>${esc(row.provider)}</strong>
+            <div style="margin-top:3px;font-size:11px;color:#6b7280">${esc(buildProviderBreakdown(row))}</div>
+          </td>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap"><strong>${formatMoney(row.totalMonthly)}</strong></td>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;color:#6b7280">${esc(formatPercent(row.share))}</td>
         </tr>`
           )
           .join("")
-      : buildEmptyRow(2);
+      : buildEmptyRow(3);
 
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#1f2937">
@@ -139,47 +167,48 @@ export function buildBiweeklyReportHtml(
       <p style="margin:6px 0 0;font-size:13px;opacity:.85">${esc(companyName)}</p>
     </div>
     <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px">
-      <h3 style="margin:0 0 12px;font-size:16px;color:#0f172a">Aplicaciones y licencias</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px">
-        <thead>
-          <tr style="text-align:left;background:#f8fafc">
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Nombre</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Valor mensual</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${applicationRows}
-          <tr style="background:#f8fafc">
-            <td style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal aplicaciones y licencias</strong></td>
-            <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.applicationsMonthly)}</strong></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h3 style="margin:0 0 12px;font-size:16px;color:#0f172a">Equipos fisicos</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px">
-        <thead>
-          <tr style="text-align:left;background:#f8fafc">
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Equipo</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Valor mensual</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${physicalRows}
-          <tr style="background:#f8fafc">
-            <td style="padding:10px 12px;border-top:2px solid #e5e7eb"><strong>Subtotal equipos fisicos</strong></td>
-            <td style="padding:10px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.physicalMonthly)}</strong></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:18px 20px;text-align:center">
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:18px 20px;text-align:center;margin-bottom:24px">
         <div style="font-size:13px;color:#1e3a8a;margin-bottom:6px">Gasto mensual total en tecnologia</div>
         <div style="font-size:24px;font-weight:700;color:#0f172a">${formatMoney(data.totals.grandTotal)}</div>
+        <div style="margin-top:6px;font-size:12px;color:#1e3a8a">
+          ${providers.length} ${providers.length === 1 ? "proveedor" : "proveedores"} ·
+          ${data.applications.length} ${data.applications.length === 1 ? "servicio" : "servicios"} ·
+          ${data.physicalAssets.length} ${data.physicalAssets.length === 1 ? "equipo" : "equipos"}
+        </div>
       </div>
 
+      <h3 style="margin:0 0 12px;font-size:16px;color:#0f172a">Resumen por proveedor</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px">
+        <thead>
+          <tr style="text-align:left;background:#f8fafc">
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Proveedor</th>
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Gasto mensual</th>
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">% del total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${providerRows}
+          <tr>
+            <td style="padding:9px 12px;border-top:2px solid #e5e7eb;color:#475569">Subtotal aplicaciones y licencias</td>
+            <td style="padding:9px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap;color:#475569">${formatMoney(data.totals.applicationsMonthly)}</td>
+            <td style="padding:9px 12px;border-top:2px solid #e5e7eb"></td>
+          </tr>
+          <tr>
+            <td style="padding:9px 12px;color:#475569">Subtotal equipos fisicos</td>
+            <td style="padding:9px 12px;text-align:right;white-space:nowrap;color:#475569">${formatMoney(data.totals.physicalMonthly)}</td>
+            <td style="padding:9px 12px"></td>
+          </tr>
+          <tr style="background:#f8fafc">
+            <td style="padding:11px 12px;border-top:1px solid #e5e7eb"><strong>Total mensual</strong></td>
+            <td style="padding:11px 12px;border-top:1px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.grandTotal)}</strong></td>
+            <td style="padding:11px 12px;border-top:1px solid #e5e7eb"></td>
+          </tr>
+        </tbody>
+      </table>
+
       <p style="margin:14px 0 0;font-size:12px;line-height:1.5;color:#475569">
-        El detalle completo (motivos, codigos, depreciacion, mantenimientos y responsables) va en el PDF adjunto.
+        El detalle completo por proveedor (cada aplicacion, licencia y equipo con su motivo, codigo,
+        depreciacion, mantenimientos y responsable) va en el PDF adjunto.
       </p>
       <p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:#6b7280">
         ${esc(ECUADOR_DEPRECIATION_NOTE)}

@@ -4,6 +4,10 @@ import {
   computeDepreciation,
   normalizeToMonthly,
 } from "./depreciation";
+import type {
+  ReportApplicationRow,
+  ReportPhysicalAssetRow,
+} from "./report-summary";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -23,19 +27,8 @@ interface MaintenanceLineInput {
   unitCost: number;
 }
 
-interface ReportApplication {
-  name: string;
-  purpose: string;
-  monthlyCost: number;
-}
-
-interface ReportPhysicalAsset {
-  name: string;
-  assetCode: string;
-  assignedTo: string;
-  monthlyDepreciation: number;
-  maintenanceMonthly: number;
-}
+type ReportApplication = ReportApplicationRow;
+type ReportPhysicalAsset = ReportPhysicalAssetRow;
 
 interface ManualRenewal {
   key: string;
@@ -853,7 +846,17 @@ export const redesignStorage = {
       maintenanceResult,
     ] = await Promise.all([
       pool.query(
-        `SELECT name, purpose, monthly_cost, annual_cost, billing_cycle
+        `SELECT
+           name,
+           purpose,
+           COALESCE(
+             NULLIF(TRIM(provider), ''),
+             NULLIF(TRIM(manufacturer), ''),
+             ''
+           ) AS provider,
+           monthly_cost,
+           annual_cost,
+           billing_cycle
          FROM assets
          WHERE company_id = $1
            AND type = 'application'
@@ -862,7 +865,13 @@ export const redesignStorage = {
         [companyId]
       ),
       pool.query(
-        `SELECT name, purpose, monthly_cost, annual_cost, billing_cycle
+        `SELECT
+           name,
+           purpose,
+           COALESCE(NULLIF(TRIM(vendor), ''), '') AS provider,
+           monthly_cost,
+           annual_cost,
+           billing_cycle
          FROM licenses
          WHERE company_id = $1
            AND status = 'active'
@@ -874,6 +883,12 @@ export const redesignStorage = {
            a.id,
            a.name,
            a.asset_code,
+           -- proveedor/marca del equipo (el wizard guarda la marca en manufacturer)
+           COALESCE(
+             NULLIF(TRIM(a.manufacturer), ''),
+             NULLIF(TRIM(a.provider), ''),
+             ''
+           ) AS provider,
            -- assigned_to puede guardar el id del usuario creador: resolver a nombre
            COALESCE(
              NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''),
@@ -941,6 +956,7 @@ export const redesignStorage = {
       return {
         name: String(row.name ?? ""),
         purpose: String(row.purpose ?? ""),
+        provider: String(row.provider ?? ""),
         monthlyCost: roundMoney(normalized),
       };
     });
@@ -972,6 +988,7 @@ export const redesignStorage = {
           name: String(row.name ?? ""),
           assetCode: String(row.asset_code ?? ""),
           assignedTo: String(row.assigned_to ?? ""),
+          provider: String(row.provider ?? ""),
           monthlyDepreciation: depreciation.fullyDepreciated
             ? 0
             : depreciation.monthlyDepreciation,
