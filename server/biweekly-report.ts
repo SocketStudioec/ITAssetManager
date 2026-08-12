@@ -9,8 +9,10 @@ import {
 import { ECUADOR_DEPRECIATION_NOTE } from "./depreciation";
 import { buildBiweeklyReportPdf } from "./report-pdf";
 import {
+  applicationMonthly,
   buildProviderSummary,
-  type ProviderSummaryRow,
+  groupByProvider,
+  physicalAssetMonthly,
 } from "./report-summary";
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -117,22 +119,70 @@ function formatPercent(value: number): string {
   })}%`;
 }
 
-function buildProviderBreakdown(row: ProviderSummaryRow): string {
-  const parts: string[] = [];
+interface SectionRow {
+  provider: string;
+  detail: string;
+  monthly: number;
+  share: number;
+}
 
-  if (row.servicesMonthly > 0) {
-    parts.push(`servicios ${formatMoney(row.servicesMonthly)}`);
-  }
+/**
+ * Bloque de una de las dos secciones del correo (servicios / equipos).
+ * Cada una lleva su propia tabla de proveedores y su subtotal, porque son
+ * dos gastos de naturaleza distinta.
+ */
+function buildSection(options: {
+  title: string;
+  subtitle: string;
+  providerHeader: string;
+  accent: string;
+  rows: SectionRow[];
+  subtotalLabel: string;
+  subtotal: number;
+}): string {
+  const rows =
+    options.rows.length > 0
+      ? options.rows
+          .map(
+            (row) => `
+        <tr>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee">
+            <strong>${esc(row.provider)}</strong>
+            <div style="margin-top:3px;font-size:11px;color:#6b7280">${esc(row.detail)}</div>
+          </td>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap"><strong>${formatMoney(row.monthly)}</strong></td>
+          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;color:#6b7280">${esc(formatPercent(row.share))}</td>
+        </tr>`
+          )
+          .join("")
+      : buildEmptyRow(3);
 
-  if (row.physicalMonthly > 0) {
-    parts.push(`equipos ${formatMoney(row.physicalMonthly)}`);
-  }
+  return `
+      <div style="border-left:4px solid ${options.accent};padding-left:12px;margin-bottom:12px">
+        <h3 style="margin:0;font-size:16px;color:#0f172a">${esc(options.title)}</h3>
+        <p style="margin:3px 0 0;font-size:12px;color:#6b7280">${esc(options.subtitle)}</p>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead>
+          <tr style="text-align:left;background:#f8fafc">
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">${esc(options.providerHeader)}</th>
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Gasto mensual</th>
+            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">% del total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr style="background:#f8fafc">
+            <td style="padding:11px 12px"><strong>${esc(options.subtotalLabel)}</strong></td>
+            <td style="padding:11px 12px;text-align:right;white-space:nowrap"><strong>${formatMoney(options.subtotal)}</strong></td>
+            <td style="padding:11px 12px"></td>
+          </tr>
+        </tbody>
+      </table>`;
+}
 
-  const items = `${row.items} ${row.items === 1 ? "ítem" : "ítems"}`;
-
-  return parts.length > 0
-    ? `${items} · ${parts.join(" · ")}`
-    : items;
+function pluralize(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 export function buildBiweeklyReportHtml(
@@ -141,24 +191,53 @@ export function buildBiweeklyReportHtml(
     ReturnType<typeof redesignStorage.getBiweeklyReportData>
   >
 ): string {
-  const providers = buildProviderSummary(data);
+  const grandTotal = Number(data.totals.grandTotal) || 0;
+  const share = (amount: number): number =>
+    grandTotal > 0 ? Math.round((amount / grandTotal) * 1000) / 10 : 0;
 
-  const providerRows =
-    providers.length > 0
-      ? providers
-          .map(
-            (row) => `
-        <tr>
-          <td style="padding:11px 12px;border-bottom:1px solid #eee">
-            <strong>${esc(row.provider)}</strong>
-            <div style="margin-top:3px;font-size:11px;color:#6b7280">${esc(buildProviderBreakdown(row))}</div>
-          </td>
-          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap"><strong>${formatMoney(row.totalMonthly)}</strong></td>
-          <td style="padding:11px 12px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;color:#6b7280">${esc(formatPercent(row.share))}</td>
-        </tr>`
-          )
-          .join("")
-      : buildEmptyRow(3);
+  // Sección 1: aplicaciones y licencias agrupadas por proveedor
+  const applicationRows: SectionRow[] = groupByProvider(
+    data.applications,
+    applicationMonthly
+  ).map((group) => ({
+    provider: group.provider,
+    detail: pluralize(group.items.length, "servicio", "servicios"),
+    monthly: group.monthlyTotal,
+    share: share(group.monthlyTotal),
+  }));
+
+  // Sección 2: equipos físicos agrupados por proveedor / marca
+  const physicalRows: SectionRow[] = groupByProvider(
+    data.physicalAssets,
+    physicalAssetMonthly
+  ).map((group) => {
+    const depreciation = group.items.reduce(
+      (total, asset) => total + (Number(asset.monthlyDepreciation) || 0),
+      0
+    );
+    const maintenance = group.items.reduce(
+      (total, asset) => total + (Number(asset.maintenanceMonthly) || 0),
+      0
+    );
+    const parts = [pluralize(group.items.length, "equipo", "equipos")];
+
+    if (depreciation > 0) {
+      parts.push(`depreciacion ${formatMoney(depreciation)}`);
+    }
+
+    if (maintenance > 0) {
+      parts.push(`mantenimiento ${formatMoney(maintenance)}`);
+    }
+
+    return {
+      provider: group.provider,
+      detail: parts.join(" · "),
+      monthly: group.monthlyTotal,
+      share: share(group.monthlyTotal),
+    };
+  });
+
+  const providerCount = buildProviderSummary(data).length;
 
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#1f2937">
@@ -171,39 +250,41 @@ export function buildBiweeklyReportHtml(
         <div style="font-size:13px;color:#1e3a8a;margin-bottom:6px">Gasto mensual total en tecnologia</div>
         <div style="font-size:24px;font-weight:700;color:#0f172a">${formatMoney(data.totals.grandTotal)}</div>
         <div style="margin-top:6px;font-size:12px;color:#1e3a8a">
-          ${providers.length} ${providers.length === 1 ? "proveedor" : "proveedores"} ·
-          ${data.applications.length} ${data.applications.length === 1 ? "servicio" : "servicios"} ·
-          ${data.physicalAssets.length} ${data.physicalAssets.length === 1 ? "equipo" : "equipos"}
+          ${pluralize(providerCount, "proveedor", "proveedores")} ·
+          ${pluralize(data.applications.length, "servicio", "servicios")} ·
+          ${pluralize(data.physicalAssets.length, "equipo", "equipos")}
         </div>
       </div>
 
-      <h3 style="margin:0 0 12px;font-size:16px;color:#0f172a">Resumen por proveedor</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px">
-        <thead>
-          <tr style="text-align:left;background:#f8fafc">
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb">Proveedor</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">Gasto mensual</th>
-            <th style="padding:10px 12px;border-bottom:2px solid #e5e7eb;text-align:right">% del total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${providerRows}
-          <tr>
-            <td style="padding:9px 12px;border-top:2px solid #e5e7eb;color:#475569">Subtotal aplicaciones y licencias</td>
-            <td style="padding:9px 12px;border-top:2px solid #e5e7eb;text-align:right;white-space:nowrap;color:#475569">${formatMoney(data.totals.applicationsMonthly)}</td>
-            <td style="padding:9px 12px;border-top:2px solid #e5e7eb"></td>
-          </tr>
-          <tr>
-            <td style="padding:9px 12px;color:#475569">Subtotal equipos fisicos</td>
-            <td style="padding:9px 12px;text-align:right;white-space:nowrap;color:#475569">${formatMoney(data.totals.physicalMonthly)}</td>
-            <td style="padding:9px 12px"></td>
-          </tr>
-          <tr style="background:#f8fafc">
-            <td style="padding:11px 12px;border-top:1px solid #e5e7eb"><strong>Total mensual</strong></td>
-            <td style="padding:11px 12px;border-top:1px solid #e5e7eb;text-align:right;white-space:nowrap"><strong>${formatMoney(data.totals.grandTotal)}</strong></td>
-            <td style="padding:11px 12px;border-top:1px solid #e5e7eb"></td>
-          </tr>
-        </tbody>
+      ${buildSection({
+        title: "Aplicaciones y licencias",
+        subtitle: "Servicios que se pagan cada mes a un proveedor.",
+        providerHeader: "Proveedor",
+        accent: "#2563eb",
+        rows: applicationRows,
+        subtotalLabel: "Subtotal aplicaciones y licencias",
+        subtotal: data.totals.applicationsMonthly,
+      })}
+
+      <!-- Separador: los equipos fisicos son un gasto de otra naturaleza -->
+      <div style="border-top:1px solid #e5e7eb;margin:32px 0"></div>
+
+      ${buildSection({
+        title: "Equipos fisicos",
+        subtitle: "Depreciacion mensual mas mantenimientos prorrateados.",
+        providerHeader: "Proveedor / marca",
+        accent: "#0f766e",
+        rows: physicalRows,
+        subtotalLabel: "Subtotal equipos fisicos",
+        subtotal: data.totals.physicalMonthly,
+      })}
+
+      <div style="border-top:2px solid #0f172a;margin:32px 0 0"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:15px">
+        <tr>
+          <td style="padding:14px 12px"><strong>Total mensual en tecnologia</strong></td>
+          <td style="padding:14px 12px;text-align:right;white-space:nowrap"><strong style="font-size:17px">${formatMoney(data.totals.grandTotal)}</strong></td>
+        </tr>
       </table>
 
       <p style="margin:14px 0 0;font-size:12px;line-height:1.5;color:#475569">
